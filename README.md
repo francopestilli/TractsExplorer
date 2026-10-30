@@ -96,11 +96,11 @@ the results:
 python3 scripts/publish_func_thresh_15_results.py
 ```
 
-The existing network-correspondence CSVs were generated for the former cluster
-partition. Their tract-level rows are retained because the selected endpoint
-maps are unchanged; cluster-level rows are excluded until network
-correspondence is rerun for the revised clusters. The existing pre-rendered
-PNG exports are not used by the interactive viewer.
+The network-correspondence CSVs now include cluster-level results recalculated
+for the revised cluster partitions. The unchanged tract-level rows were
+preserved. Use `--clusters-only` to refresh cluster rows without recomputing
+tract rows. The existing pre-rendered PNG exports are not used by the
+interactive viewer.
 
 ## Network Correspondence Toolbox
 
@@ -118,9 +118,10 @@ Then, from this repo:
 ```bash
 /opt/anaconda3/envs/cbig_nc/bin/python3 scripts/compute_network_correspondence.py            # all thresholds
 /opt/anaconda3/envs/cbig_nc/bin/python3 scripts/compute_network_correspondence.py thr-15      # one threshold
+/opt/anaconda3/envs/cbig_nc/bin/python3 scripts/compute_network_correspondence.py --clusters-only  # refresh revised clusters only
 ```
 
-For each tract and each live-clustered cluster, a rerun combines its endpoint map(s) (same max-overlap merge the 3D viewer uses), resamples to fsaverage6 by taking the **first 40,962 vertices** of our native fsaverage (164k) data — fsaverage6 is an exact vertex subset of fsaverage via icosahedral subdivision, verified directly against both meshes' coordinates, so no resampling tool (e.g. Connectome Workbench) is needed — and runs `network_correspondence()` against each atlas in the script's `ATLASES` list: `EG17` (Gordon 17), `TY7` (Yeo 7), `AS200Y17` (Schaefer 200, Yeo 17), `MG360J12` (Glasser 360, 12 networks), `XS268_8` (Shen 268, 8 networks), `EG286_12` (Gordon 286, 12 networks) — the reference atlases used in the paper. The script now uses the revised 1.32 cluster cut and limits tract-level calculations to each matrix's cohort. The currently published CSVs contain tract rows only; cluster-level NCT results must be regenerated for the updated cluster memberships before display.
+For each tract and each live-clustered cluster, a rerun combines its endpoint map(s) (same max-overlap merge the 3D viewer uses), resamples to fsaverage6 by taking the **first 40,962 vertices** of our native fsaverage (164k) data — fsaverage6 is an exact vertex subset of fsaverage via icosahedral subdivision, verified directly against both meshes' coordinates, so no resampling tool (e.g. Connectome Workbench) is needed — and runs `network_correspondence()` against each atlas in the script's `ATLASES` list: `EG17` (Gordon 17), `TY7` (Yeo 7), `AS200Y17` (Schaefer 200, Yeo 17), `MG360J12` (Glasser 360, 12 networks), `XS268_8` (Shen 268, 8 networks), `EG286_12` (Gordon 286, 12 networks) — the reference atlases used in the paper. The script uses the revised 1.32 cluster cut and limits tract-level calculations to each matrix's cohort.
 
 To add another of the toolbox's ~25 atlases (Schaefer, Gordon, Cole-Anticevic, Power, …) to the website's dropdown, add its code to `ATLASES` in the script and re-run — no other code changes needed, the dropdown is populated from whatever atlas codes are actually present in the CSV.
 

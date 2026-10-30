@@ -17,11 +17,12 @@ spin-test p-value against canonical functional network atlases (Yeo 7 / Yeo
     name         network name within that atlas (e.g. "Default")
     dice, p_value  straight from cbig_network_correspondence's own output
 
-Run with the *cbig_nc* conda environment (has the toolbox's exact pinned
+Run with the *cbig_nc* conda environment (has the toolbox's pinned
 dependency versions — NOT the Kims-Revisions environment used for the LDA
 decoding notebook, whose newer numpy/matplotlib conflict with it):
 
     /opt/anaconda3/envs/cbig_nc/bin/python3 scripts/compute_network_correspondence.py
+    /opt/anaconda3/envs/cbig_nc/bin/python3 scripts/compute_network_correspondence.py --clusters-only
 
 Resampling note: the toolbox needs surface data at fsaverage6 (40,962
 vertices/hemisphere); our func.gii maps are native fsaverage (163,842/hemi,
@@ -30,10 +31,10 @@ fsaverage6 is an exact vertex subset of fsaverage (icosahedral subdivision,
 verified directly against both meshes' coordinates), so fsaverage6 == the
 first 40,962 vertices of our data, by plain index.
 """
+import argparse
 import configparser
 import json
 import os
-import sys
 import tempfile
 
 import nibabel as nib
@@ -154,9 +155,24 @@ def compute_clustering(matrix_csv, cut):
 
 
 def main():
-    only_threshold = sys.argv[1] if len(sys.argv) > 1 else None
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "threshold",
+        nargs="?",
+        choices=THRESHOLDS,
+        help="Recompute one threshold folder instead of all thresholds.",
+    )
+    parser.add_argument(
+        "--clusters-only",
+        action="store_true",
+        help=(
+            "Recompute revised cluster rows only, preserving existing tract "
+            "rows in each network-correspondence.csv."
+        ),
+    )
+    args = parser.parse_args()
     for folder, cfg in THRESHOLDS.items():
-        if only_threshold and folder != only_threshold:
+        if args.threshold and folder != args.threshold:
             continue
         thr_dir = os.path.join(TESTDATA, folder)
         func_dir = os.path.join(TESTDATA, cfg.get("func_dir", folder), "func")
@@ -174,17 +190,18 @@ def main():
             raise ValueError(f"[{folder}] matrix has no tracts with available surface maps")
 
         rows = []
-        print(f"[{folder}] {len(tracts)} tracts")
-        for i, tract in enumerate(tracts):
-            with tempfile.TemporaryDirectory() as tmp:
-                vec = to_fsaverage6_vector(func_dir, [tract])
-                if vec is None:
-                    print(f"  ({i+1}/{len(tracts)}) {tract}: no data, skipping")
-                    continue
-                recs = compute_entity(tract, vec, tmp)
-            for r in recs:
-                rows.append({"entity_type": "tract", "entity_id": tract, **r})
-            print(f"  ({i+1}/{len(tracts)}) {tract}: done")
+        if not args.clusters_only:
+            print(f"[{folder}] {len(tracts)} tracts")
+            for i, tract in enumerate(tracts):
+                with tempfile.TemporaryDirectory() as tmp:
+                    vec = to_fsaverage6_vector(func_dir, [tract])
+                    if vec is None:
+                        print(f"  ({i+1}/{len(tracts)}) {tract}: no data, skipping")
+                        continue
+                    recs = compute_entity(tract, vec, tmp)
+                for r in recs:
+                    rows.append({"entity_type": "tract", "entity_id": tract, **r})
+                print(f"  ({i+1}/{len(tracts)}) {tract}: done")
 
         clusters = compute_clustering(matrix_csv, cfg["cut"])
         print(f"[{folder}] {len(clusters)} clusters")
@@ -201,6 +218,18 @@ def main():
 
         out_df = pd.DataFrame(rows)
         out_path = os.path.join(thr_dir, "network-correspondence.csv")
+        if args.clusters_only:
+            if not os.path.isfile(out_path):
+                raise FileNotFoundError(
+                    f"Cannot preserve tract results; existing file is missing: {out_path}"
+                )
+            existing = pd.read_csv(out_path)
+            tract_rows = existing[existing["entity_type"] == "tract"]
+            if tract_rows.empty:
+                raise ValueError(
+                    f"Cannot preserve tract results; no tract rows in {out_path}"
+                )
+            out_df = pd.concat([tract_rows, out_df], ignore_index=True)
         out_df.to_csv(out_path, index=False)
         print(f"[{folder}] wrote {len(out_df)} rows to {out_path}")
 
