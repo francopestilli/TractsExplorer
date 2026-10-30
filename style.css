@@ -346,6 +346,59 @@ body {
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
 }
+.cluster-analysis-details {
+  margin: 24px 0;
+  max-width: 1100px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.cluster-analysis-details summary {
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 600;
+}
+.cluster-analysis-details > p {
+  margin: 12px 0;
+  line-height: 1.5;
+}
+.quality-table-wrap {
+  overflow-x: auto;
+  margin: 12px 0;
+}
+.quality-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.quality-table th,
+.quality-table td {
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+}
+.quality-table th:first-child,
+.quality-table td:first-child {
+  text-align: left;
+}
+.quality-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.analysis-downloads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 16px;
+}
+.analysis-downloads a {
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: none;
+}
+.analysis-downloads a:hover { text-decoration: underline; }
 .panel-card img {
   width: 100%;
   height: auto;

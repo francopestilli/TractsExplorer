@@ -65,11 +65,11 @@ FSAVERAGE6_N = 40962  # vertices per hemisphere
 # on the website). Both duplicated here because the offline script can't
 # read explorer.html's JS.
 THRESHOLDS = {
-    "thr-05": {"cut": 1.0},
-    "thr-10": {"cut": 1.0},
-    "thr-15": {"cut": 1.0},
-    "thr-15_5clusters": {"cut": 1.2657, "func_dir": "thr-15"},
-    "thr-20": {"cut": 1.0},
+    "thr-05": {"cut": 1.32},
+    "thr-10": {"cut": 1.32},
+    "thr-15": {"cut": 1.32},
+    "thr-15_5clusters": {"cut": 1.32, "func_dir": "thr-15"},
+    "thr-20": {"cut": 1.32},
 }
 
 
@@ -168,7 +168,10 @@ def main():
         manifest_path = os.path.join(func_dir, "manifest.json")
         with open(manifest_path) as f:
             manifest = json.load(f)
-        tracts = sorted(manifest.keys())
+        matrix = pd.read_csv(matrix_csv, index_col=0)
+        tracts = [tract for tract in matrix.index if tract in manifest]
+        if not tracts:
+            raise ValueError(f"[{folder}] matrix has no tracts with available surface maps")
 
         rows = []
         print(f"[{folder}] {len(tracts)} tracts")

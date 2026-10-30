@@ -197,7 +197,7 @@
         <h1>White Matter Tract Explorer</h1>
         <p class="tagline">Explore how white matter pathways align with brain function.</p>
         <p class="lede">
-          Discover the functional profiles of 51 major white matter tracts. Explore their cortical
+          Discover the functional profiles of 45 available white matter tracts. Explore their cortical
           endpoints, associated cognitive processes, and shared organization across canonical brain networks.
         </p>
         <div class="cta-row">
@@ -207,7 +207,7 @@
       </div>
       <div class="hero-visual">
         <canvas id="heroCanvas"></canvas>
-        <div class="preview-loading" id="heroLoading"><div class="spinner"></div>Loading all 51 tracts…</div>
+        <div class="preview-loading" id="heroLoading"><div class="spinner"></div>Loading all 45 tracts…</div>
         <div class="hero-caption">Every tract, colored by the functional cluster it belongs to — drag to rotate</div>
       </div>
     </section>
@@ -266,7 +266,8 @@
   <script src="surf3d.js"></script>
   <script src="cluster.js"></script>
   <script>
-    const PREVIEW_BASE = 'testdata/thr-15';
+    const PREVIEW_BASE = 'testdata/thr-15_5clusters';
+    const PREVIEW_SURF_BASE = 'testdata/thr-15/func';
     const PREVIEW_CLUSTER_COLORS = ['#e07b7b', '#d4a843', '#6bbf6b', '#5aaccc', '#9b75d4', '#d47a5a', '#3fb8a8'];
 
     function hexToRgb01(hex) {
@@ -319,7 +320,7 @@
         const vmax = allValues[Math.ceil(allValues.length * 0.95)] ?? 0.5;
 
         // ── Cluster View preview: dendrogram structure (labels hidden via CSS) ──
-        const clustering = computeClustering(matrix, tractOrder, topicCols, 1.0);
+        const clustering = computeClustering(matrix, tractOrder, topicCols, 1.32);
         if (clustering) {
           new Vue({
             el: '#dendroPreview',
@@ -396,7 +397,7 @@
       catch (e) { loading.textContent = '3D preview unavailable in this browser'; return; }
 
       const meshBase = 'assets/surf/mesh';
-      const surfBase = `${PREVIEW_BASE}/func`;
+      const surfBase = PREVIEW_SURF_BASE;
       const byCluster = {};
       clustering.tracts.forEach(t => {
         const cid = clustering.assignments[t];
@@ -482,7 +483,7 @@
       const canvas = document.getElementById('arcCanvas');
       const loading = document.getElementById('arcLoading');
       const meshBase = 'assets/surf/mesh';
-      const surfBase = `${PREVIEW_BASE}/func`;
+      const surfBase = PREVIEW_SURF_BASE;
       const parts = [['lh', 'leftArc'], ['rh', 'rightArc']];
 
       let scene;

@@ -48,14 +48,13 @@
         //   cut        dendrogram distance cut for the live clustering (default 1.0)
         //   noClusters true hides the Cluster tab
         thresholds: {
-          '0.05 (9 clusters)': { folder: 'thr-05', surfBase: 'testdata/thr-05/func' },
-          '0.10 (8 clusters)': { folder: 'thr-10', surfBase: 'testdata/thr-10/func' },
-          '0.15 (7 clusters)': { folder: 'thr-15', surfBase: 'testdata/thr-15/func' },
-          // Same 0.15 decoding and endpoint maps, dendrogram cut higher to give 5 clusters
-          '0.15 (5 clusters)': { folder: 'thr-15_5clusters', surfBase: 'testdata/thr-15/func', cut: 1.2657 },
-          '0.20 (7 clusters)': { folder: 'thr-20', surfBase: 'testdata/thr-20/func' }
+          '0.05 (5 clusters)': { folder: 'thr-05', surfBase: 'testdata/thr-05/func', cut: 1.32 },
+          '0.10 (4 clusters)': { folder: 'thr-10', surfBase: 'testdata/thr-10/func', cut: 1.32 },
+          '0.15 (5 clusters, 45-tract cohort)': { folder: 'thr-15', surfBase: 'testdata/thr-15/func', cut: 1.32 },
+          '0.15 (5 clusters, fixed 43-tract cohort)': { folder: 'thr-15_5clusters', surfBase: 'testdata/thr-15/func', cut: 1.32 },
+          '0.20 (5 clusters)': { folder: 'thr-20', surfBase: 'testdata/thr-20/func', cut: 1.32 }
         },
-        defaultThreshold: '0.15 (7 clusters)'
+        defaultThreshold: '0.15 (5 clusters, fixed 43-tract cohort)'
       }
     }
   });

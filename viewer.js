@@ -370,7 +370,9 @@ Vue.component('wmc-viewer', {
                   </div>
                 </div>
               </div>
-              <div v-else class="network-corr-empty">No {{ networkAtlas }} correspondence for this cluster.</div>
+              <div v-else class="network-corr-empty">
+                Cluster-level network correspondence has not been recalculated for this revised cluster solution.
+              </div>
             </template>
 
             <!-- Mini strip: all topics for this cluster -->
@@ -395,6 +397,52 @@ Vue.component('wmc-viewer', {
                 </div>
               </div>
             </template>
+
+            <details class="cluster-analysis-details">
+              <summary>Cluster quality and downloadable results</summary>
+              <p class="text-muted">
+                The displayed cluster solution uses the joint LPI + RAS maps and a distance cut of 1.32.
+                Quality metrics below include LPI, RAS, and joint clustering.
+              </p>
+              <div v-if="analysisSummary.length" class="quality-table-wrap">
+                <table class="quality-table">
+                  <thead><tr><th>Mode</th><th>Complete tracts</th><th>Clusters at cut</th><th>Cophenetic r</th></tr></thead>
+                  <tbody>
+                    <tr v-for="row in analysisSummary" :key="row.mode">
+                      <td>{{ row.mode }}</td>
+                      <td>{{ row.n_complete_tracts }} / {{ row.n_available_tracts }}</td>
+                      <td>{{ row.n_clusters_at_cut1_32 }}</td>
+                      <td>{{ formatQuality(row.cophenetic_correlation) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-if="clusterQuality.length" class="quality-table-wrap">
+                <table class="quality-table">
+                  <thead><tr><th>Mode</th><th>Requested k</th><th>Actual k</th><th>Complete tracts</th><th>Silhouette</th><th>Dunn</th></tr></thead>
+                  <tbody>
+                    <tr v-for="row in clusterQuality" :key="row.mode + '-' + row.requested_n_clusters">
+                      <td>{{ row.mode }}</td>
+                      <td>{{ row.requested_n_clusters }}</td>
+                      <td>{{ row.actual_n_clusters }}</td>
+                      <td>{{ row.n_complete_tracts }}</td>
+                      <td>{{ formatQuality(row.silhouette_score) }}</td>
+                      <td>{{ formatQuality(row.dunn_index) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="analysis-downloads">
+                <a :href="baseUrl + '/matrix.csv'" download>Joint tract decoding</a>
+                <a :href="baseUrl + '/matrix_LPI.csv'" download>LPI tract decoding</a>
+                <a :href="baseUrl + '/matrix_RAS.csv'" download>RAS tract decoding</a>
+                <a :href="baseUrl + '/cluster-matrix.csv'" download>Joint cluster decoding</a>
+                <a :href="baseUrl + '/cluster-matrix_LPI.csv'" download>LPI cluster decoding</a>
+                <a :href="baseUrl + '/cluster-matrix_RAS.csv'" download>RAS cluster decoding</a>
+                <a :href="baseUrl + '/cluster-quality.csv'" download>Quality metrics CSV</a>
+                <a :href="baseUrl + '/analysis-summary.csv'" download>Clustering summary CSV</a>
+              </p>
+            </details>
           </div>
         </div>
 
@@ -620,6 +668,8 @@ ${SURF_PANEL_TEMPLATE}
       selectedTopic: null,      // raw topic column name shown in the topic detail panel
       topicFunctionalOnly: true,    // on by default: matches the notebook/gradec figures (functional terms)
       clusterMatrix: {},
+      clusterQuality: [],
+      analysisSummary: [],
       matrixRAS: {},            // { tract: { topic: r } } — RAS endpoint decoded on its own (matrix_RAS.csv)
       matrixLPI: {},            // same for the LPI endpoint (matrix_LPI.csv)        // { clusterId: { topicName: value } } — from cluster-matrix.csv, optional
       vmin: -0.5,
@@ -971,6 +1021,23 @@ ${SURF_PANEL_TEMPLATE}
       });
     },
 
+    loadClusterAnalysisSummary() {
+      this.clusterQuality = [];
+      this.analysisSummary = [];
+      const loadRows = (file, callback) => {
+        Papa.parse(`${this.baseUrl}/${file}`, {
+          download: true,
+          header: true,
+          dynamicTyping: true,
+          skipEmptyLines: true,
+          complete: (results) => callback(results.data),
+          error: () => callback([])
+        });
+      };
+      loadRows('cluster-quality.csv', (rows) => { this.clusterQuality = rows; });
+      loadRows('analysis-summary.csv', (rows) => { this.analysisSummary = rows; });
+    },
+
     // Measures the step's target element and stores its viewport rect (for
     // the spotlight) plus a clamped popover position next to it. Returns
     // false if the target isn't present/visible, so the caller can skip it.
@@ -1026,6 +1093,7 @@ ${SURF_PANEL_TEMPLATE}
           this.parseMatrix(results);
           this.loading = false;
           this.loadClusterMatrix();
+          this.loadClusterAnalysisSummary();
           this.loadNetworkCorrespondence();
           this.loadSideMatrices();
 
@@ -1188,6 +1256,12 @@ ${SURF_PANEL_TEMPLATE}
     topicLabel(raw) { return topicLabel(raw); },
     topicId(raw) { return String(raw).split('_')[0]; },
     fmtR(v) { return v === null || v === undefined || isNaN(v) ? '—' : v.toFixed(3); },
+    formatQuality(v) {
+      const number = Number(v);
+      return v === null || v === undefined || v === '' || !Number.isFinite(number)
+        ? '—'
+        : number.toFixed(3);
+    },
     sideBarWidth(v) { return (Math.abs(v) / this.sideBarMax) * 96; },
     // matrix_RAS.csv / matrix_LPI.csv: each endpoint decoded on its own
     // (same layout as matrix.csv). Missing file → that column says "no data".
@@ -1280,8 +1354,7 @@ ${SURF_PANEL_TEMPLATE}
     },
 
     // Optional network-correspondence.csv: Dice overlap + spin-test p-value
-    // against canonical network atlases (Yeo 7/17, "TY7"/"TY17"), for every
-    // tract and cluster — computed offline by
+    // against canonical network atlases — computed offline by
     // scripts/compute_network_correspondence.py using the Network
     // Correspondence Toolbox (Kong et al. 2025, Nature Communications:
     // https://www.nature.com/articles/s41467-025-58176-9). Missing file

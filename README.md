@@ -15,6 +15,7 @@ White matter tracts were defined from [Bullock et al., 2022](https://academic.ou
 - Member tracts listed next to the cluster label (click → Tract View)
 - 3D cortical endpoint map of the whole cluster (LPI + RAS combined, max across member tracts)
 - Top cognitive topics, radar chart and word cloud from the cluster's own decoding
+- Cluster counts, cophenetic correlations, silhouette scores, and Dunn indices from the current reanalysis
 
 **Tract View**
 - 3D cortical endpoint maps for the RAS and LPI endpoints (drag to rotate, scroll to zoom)
@@ -36,7 +37,7 @@ Charts use the cluster's color throughout (a tract takes its cluster's color).
 1. keep tracts with no missing topic scores (`matrix.dropna(axis=0)`)
 2. distance = 1 − Pearson r between tracts across topics
 3. complete-linkage hierarchical clustering
-4. cut the tree at distance `cut` (default 1.0; set per threshold in `explorer.html`)
+4. cut the tree at distance 1.32 for the published smooth_3 reanalysis
 
 Cluster numbers follow scipy's `fcluster` exactly, so cluster *N* matches row *N* of `cluster-matrix.csv`. Tracts with missing scores are shown as "Not clustered".
 
@@ -44,12 +45,17 @@ Cluster numbers follow scipy's `fcluster` exactly, so cluster *N* matches row *N
 
 ```
 testdata/
-└── thr-15/                    ← one folder per threshold
+└── thr-15/                    ← threshold 0.15, full 45-tract available cohort
     ├── matrix.csv             ← tracts × topics, joint (LPI + RAS) decoding (Pearson r)
     ├── matrix_RAS.csv         ← RAS endpoint decoded on its own (same layout)
     ├── matrix_LPI.csv         ← LPI endpoint decoded on its own (same layout)
     ├── cluster-matrix.csv     ← clusters × topics, each cluster's combined map decoded
-    ├── network-correspondence.csv  ← tracts/clusters × network atlases, Dice + p-value (see below)
+    ├── cluster-matrix_LPI.csv / cluster-matrix_RAS.csv
+    ├── cluster-quality.csv    ← silhouette and Dunn scores for k=2…8, all three modes
+    ├── analysis-summary.csv   ← complete counts and cophenetic r, all three modes
+    ├── cluster-assignments_{LPI,RAS,joint}.csv
+    ├── dendrogram_{LPI,RAS,joint}.png
+    ├── network-correspondence.csv  ← tract × network-atlas Dice + p-value (see below)
     └── func/
         ├── {lh|rh}.{tract}.{LPI|RAS}.func.gii   ← per-tract endpoint maps (fsaverage)
         └── manifest.json      ← which hemisphere/orientation files exist per tract
@@ -68,9 +74,37 @@ python3 scripts/export_topic_terms.py ../Kims-Revisions/data/decoding
 
 which reads gradec's `source-neuroquery_desc-lda_{features,frequencies,classification}.csv`.
 
+## Published smooth_3 reanalysis
+
+The active threshold selector uses the continuous
+`*.smooth_3.func.gii` maps from `smooth_data/1062_cortexmap_binarize_smooth-surf-1_threshold-<value>_dilate-0/cortexmap/func`.
+The website's selected endpoint maps were checked vertex-for-vertex against
+those source maps; all 360 selected maps matched exactly. The full available
+45-tract cohort is published at each threshold. Threshold 0.15 also has a
+separate fixed 43-tract cohort, listed in the selector as such. `leftbaum` is
+represented by `leftOpticRadiation`.
+
+The tract matrices, cluster assignments, independent cluster decodings,
+dendrograms, and cluster-quality CSVs for LPI, RAS, and joint LPI + RAS were
+copied from `Kims-Revisions/data/func_thresh_15_reanalysis/`. The interactive
+Cluster View shows the joint solution; the expandable quality/data section
+reports all three modes and provides the full result tables. Use the update
+script from this repository to republish and validate the maps before copying
+the results:
+
+```bash
+python3 scripts/publish_func_thresh_15_results.py
+```
+
+The existing network-correspondence CSVs were generated for the former cluster
+partition. Their tract-level rows are retained because the selected endpoint
+maps are unchanged; cluster-level rows are excluded until network
+correspondence is rerun for the revised clusters. The existing pre-rendered
+PNG exports are not used by the interactive viewer.
+
 ## Network Correspondence Toolbox
 
-`network-correspondence.csv` (one per threshold; columns `entity_type, entity_id, group, name, dice, p_value`) is computed offline by `scripts/compute_network_correspondence.py`, using [cbig_network_correspondence](https://github.com/rubykong/cbig_network_correspondence) ([Kong et al., 2025](https://www.nature.com/articles/s41467-025-58176-9)).
+`network-correspondence.csv` (one per threshold; columns `entity_type, entity_id, group, name, dice, p_value`) is computed offline by `scripts/compute_network_correspondence.py`, using [cbig_network_correspondence](https://github.com/rubykong/cbig_network_correspondence) ([Kong et al., 2025](https://www.nature.com/articles/s41467-025-58176-9)). The currently published tract rows use the verified unchanged endpoint maps; cluster rows from the prior partition are intentionally omitted.
 
 The toolbox pins exact dependency versions (`numpy==1.26.4`, `matplotlib==3.9.0`, …) that conflict with the newer `numpy`/`matplotlib` the Kims-Revisions decoding notebook needs — **install it into its own environment**, not the notebook's:
 
@@ -86,7 +120,7 @@ Then, from this repo:
 /opt/anaconda3/envs/cbig_nc/bin/python3 scripts/compute_network_correspondence.py thr-15      # one threshold
 ```
 
-For each tract and each live-clustered cluster, this combines its endpoint map(s) (same max-overlap merge the 3D viewer uses), resamples to fsaverage6 by taking the **first 40,962 vertices** of our native fsaverage (164k) data — fsaverage6 is an exact vertex subset of fsaverage via icosahedral subdivision, verified directly against both meshes' coordinates, so no resampling tool (e.g. Connectome Workbench) is needed — and runs `network_correspondence()` against each atlas in the script's `ATLASES` list: `EG17` (Gordon 17), `TY7` (Yeo 7), `AS200Y17` (Schaefer 200, Yeo 17), `MG360J12` (Glasser 360, 12 networks), `XS268_8` (Shen 268, 8 networks), `EG286_12` (Gordon 286, 12 networks) — the reference atlases used in the paper.
+For each tract and each live-clustered cluster, a rerun combines its endpoint map(s) (same max-overlap merge the 3D viewer uses), resamples to fsaverage6 by taking the **first 40,962 vertices** of our native fsaverage (164k) data — fsaverage6 is an exact vertex subset of fsaverage via icosahedral subdivision, verified directly against both meshes' coordinates, so no resampling tool (e.g. Connectome Workbench) is needed — and runs `network_correspondence()` against each atlas in the script's `ATLASES` list: `EG17` (Gordon 17), `TY7` (Yeo 7), `AS200Y17` (Schaefer 200, Yeo 17), `MG360J12` (Glasser 360, 12 networks), `XS268_8` (Shen 268, 8 networks), `EG286_12` (Gordon 286, 12 networks) — the reference atlases used in the paper. The script now uses the revised 1.32 cluster cut and limits tract-level calculations to each matrix's cohort. The currently published CSVs contain tract rows only; cluster-level NCT results must be regenerated for the updated cluster memberships before display.
 
 To add another of the toolbox's ~25 atlases (Schaefer, Gordon, Cole-Anticevic, Power, …) to the website's dropdown, add its code to `ATLASES` in the script and re-run — no other code changes needed, the dropdown is populated from whatever atlas codes are actually present in the CSV.
 
@@ -126,6 +160,7 @@ The site is static, so it can be served from GitHub Pages (Settings → Pages �
 | `surf3d.js` | GIFTI parsing + three.js cortical surface rendering |
 | `scripts/export_topic_terms.py` | builds `assets/decoding/topic-terms.json` |
 | `scripts/compute_network_correspondence.py` | builds `network-correspondence.csv` (run in the separate `cbig_nc` environment — see above) |
+| `scripts/publish_func_thresh_15_results.py` | publishes and validates the smooth_3 reanalysis tables from the sibling `Kims-Revisions` project |
 
 Dependencies are loaded from a CDN, with no build step: [Vue 2](https://v2.vuejs.org/), [PapaParse](https://www.papaparse.com/), [pako](https://github.com/nodeca/pako), [three.js](https://threejs.org/).
 

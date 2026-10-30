@@ -1,0 +1,4 @@
+threshold,cohort,mode,n_available_tracts,n_complete_tracts,n_incomplete_tracts,n_clusters_at_cut1_32,cophenetic_correlation
+0.2,full_available,LPI,45,30,15,4,0.7260060381721808
+0.2,full_available,RAS,45,38,7,4,0.7102351570180463
+0.2,full_available,joint,45,41,4,5,0.7596556309199258
