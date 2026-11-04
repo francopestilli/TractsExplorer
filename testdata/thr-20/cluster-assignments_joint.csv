@@ -9,6 +9,7 @@ leftIFOF,2
 leftILF,4
 leftMDLFang,5
 leftMDLFspl,1
+leftMotorCerebellar,3
 leftSLF1And2,3
 leftSLF3,1
 leftTPC,4
@@ -30,6 +31,7 @@ rightIFOF,2
 rightILF,4
 rightMDLFang,1
 rightMDLFspl,1
+rightMotorCerebellar,3
 rightSLF1And2,3
 rightSLF3,1
 rightTPC,4

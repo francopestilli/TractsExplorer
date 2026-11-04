@@ -16,6 +16,9 @@ const CLUSTER_COLORS = [
   '#e080c0'  // 9 – pink
 ];
 
+// Tints for 'colour by tract' inside a cluster (up to 12 members)
+const TRACT_TINTS = ['#ff6b6b', '#ffd166', '#06d6a0', '#4cc9f0', '#c77dff', '#ff9f1c', '#f15bb5', '#80ed99', '#9bf6ff', '#ffadad', '#bdb2ff', '#fdffb6'];
+
 // Diverging colour scale: blue → white → red (for decoding scores)
 function scoreToColor(v, vmin, vmax) {
   if (v === null || isNaN(v)) return '#2a2d40';
@@ -41,11 +44,53 @@ function topicLabel(raw) {
   return raw.replace(/^\d+_/, '').replace(/_/g, ' ');
 }
 
+// Human-readable tract names. The data uses internal identifiers such as
+// "leftArc" or "rightMDLFspl"; the raw id is always shown alongside (tooltip
+// or small print) so nothing is hidden, this just makes lists readable.
+const TRACT_WORDS = {
+  arc: 'Arcuate', parc: 'Posterior arcuate', slf1and2: 'SLF I & II', slf3: 'SLF III',
+  ifof: 'IFOF', ilf: 'ILF', vof: 'VOF', uncinate: 'Uncinate', cingulum: 'Cingulum',
+  cst: 'Corticospinal', aslant: 'Frontal aslant', tpc: 'Temporo-parietal connection',
+  mdlfang: 'MdLF (angular)', mdlfspl: 'MdLF (SPL)', meyer: "Meyer's loop",
+  opticradiation: 'Optic radiation', forcepsmajor: 'Forceps major', forcepsminor: 'Forceps minor',
+  anteriofrontalcc: 'Anterior frontal CC', middlefrontalcc: 'Middle frontal CC', parietalcc: 'Parietal CC',
+  frontothalamic: 'Fronto-thalamic', parietothalamic: 'Parieto-thalamic', temporothalamic: 'Temporo-thalamic',
+  motorthalamic: 'Motor-thalamic', spinothalamic: 'Spino-thalamic',
+  anteriofrontocerebellar: 'Anterior fronto-cerebellar', contraanteriofrontocerebellar: 'Contralateral anterior fronto-cerebellar',
+  motorcerebellar: 'Motor-cerebellar', contramotorcerebellar: 'Contralateral motor-cerebellar',
+  parietocerebellar: 'Parieto-cerebellar', occipitocerebellar: 'Occipito-cerebellar', thalamicocerebellar: 'Thalamo-cerebellar'
+};
+function tractParts(raw) {
+  const m = /^(left|right)(.+)$/i.exec(raw);
+  const side = m ? m[1].toLowerCase() : null;
+  const rest = (m ? m[2] : raw).toLowerCase();
+  return { side, rest };
+}
+function tractLabel(raw) {
+  const { side, rest } = tractParts(raw);
+  const base = TRACT_WORDS[rest] || raw.replace(/^(left|right)/, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase());
+  return side ? `${side === 'left' ? 'L' : 'R'} ${base}` : base;
+}
+function tractSide(raw) {
+  const { side } = tractParts(raw);
+  return side ? side.toUpperCase() : 'MID';
+}
+
+// Reference atlases of the Network Correspondence Toolbox used in the paper.
+const ATLAS_LABELS = {
+  TY7: 'Yeo 7 networks (TY7)', EG17: 'Gordon 17 (EG17)', AS200Y17: 'Schaefer 200 / Yeo 17 (AS200Y17)',
+  MG360J12: 'Glasser 360 / 12 networks (MG360J12)', XS268_8: 'Shen 268 / 8 networks (XS268_8)', EG286_12: 'Gordon 286 / 12 networks (EG286_12)'
+};
+
+// localStorage is a convenience only (first-visit guide); fail soft.
+function readPref(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function writePref(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
+
 // Topic detail panel: full LDA term list for the topic clicked in
 // "Top Cognitive Topics" (data: assets/decoding/topic-terms.json, made by
 // scripts/export_topic_terms.py). Shared by the Cluster and Tract views.
 const TOPIC_PANEL_TEMPLATE = `
-              <aside class="panel-card topic-detail" v-if="selectedTopic">
+              <aside class="panel-card topic-detail" v-if="selectedTopic" data-tour="topic-panel">
                 <div class="panel-card-title topic-detail-title">
                   <span>Topic {{ topicId(selectedTopic) }}</span>
                   <button class="topic-detail-close" @click="selectedTopic = null" aria-label="Close topic panel">×</button>
@@ -84,6 +129,52 @@ const TOPIC_PANEL_TEMPLATE = `
               </aside>
 `;
 
+// Brain workspace: ONE large viewport shared by the Cluster and Tract views.
+// Toolbar: which map (tract: both / RAS / LPI; cluster: combined / by tract),
+// which hemisphere(s), and camera presets. Everything is drawn from func.gii.
+const BRAIN_TEMPLATE = `
+            <div class="brain-ws" v-if="surfBase && surfMeshBase">
+              <div class="brain-toolbar">
+                <label class="ctl">
+                  <span class="ctl-label">Show</span>
+                  <select class="select" :value="brain.mode" @change="setBrainMode($event.target.value)" aria-label="What to draw on the cortex">
+                    <template v-if="tab === 'cluster'">
+                      <option value="both">Cluster endpoints (combined)</option>
+                      <option value="bytract">Cluster endpoints, coloured by tract</option>
+                    </template>
+                    <template v-else>
+                      <option value="both">Both endpoints</option>
+                      <option value="RAS">RAS endpoint only</option>
+                      <option value="LPI">LPI endpoint only</option>
+                    </template>
+                    <option value="none" v-if="brain.atlas">Networks only (no endpoints)</option>
+                  </select>
+                </label>
+                <label class="ctl">
+                  <span class="ctl-label">View</span>
+                  <select class="select" :value="brain.view" @change="setBrainView($event.target.value)" aria-label="Camera view">
+                    <option v-for="v in brainViews" :key="v.id" :value="v.id">{{ v.label }}</option>
+                  </select>
+                </label>
+                <button class="icon-btn" @click="resetBrain()" title="Reset rotation and zoom" aria-label="Reset view">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 1 0 2.3-5.7M4 4v5h5"/></svg>
+                </button>
+              </div>
+              <div class="brain-stage">
+                <canvas ref="surfCanvas"></canvas>
+                <div class="surf-overlay" v-if="brain.status === 'loading'"><div class="spinner"></div></div>
+                <div class="surf-overlay surf-empty" v-if="brain.status === 'empty'">No endpoint map for this selection at this threshold</div>
+                <div class="surf-overlay surf-empty" v-if="brain.status === 'nomembers'">Cluster membership couldn't be computed for this threshold</div>
+                <div class="surf-overlay surf-empty" v-if="brain.status === 'nowebgl'">3D view unavailable (WebGL failed to start in this browser)</div>
+                <div class="brain-caption">
+                  <span v-if="tab === 'cluster'">Cluster {{ selectedCluster }} · {{ brain.mode === 'bytract' ? 'coloured by tract' : brain.mode === 'none' ? 'networks only' : 'combined LPI + RAS' }}</span>
+                  <span v-else>{{ tractLabel(selectedTract) }} · {{ brain.mode === 'both' ? 'LPI + RAS' : brain.mode === 'none' ? 'networks only' : brain.mode + ' endpoint' }}</span>
+                  <span class="hint">drag to rotate · scroll to zoom</span>
+                </div>
+              </div>
+            </div>
+`;
+
 // Shared 3D endpoint-map panel, used by both the Cluster and Tract views.
 // Only one view is mounted at a time, so the canvas refs never collide.
 const SURF_PANEL_TEMPLATE = `
@@ -104,26 +195,92 @@ const SURF_PANEL_TEMPLATE = `
                     <span>0</span><div class="legend-grad hot"></div><span>{{ surfMax.RAS.toFixed(2) }}</span>
                   </div>
                 </div>
-                <div class="panel-card surf-card">
-                  <div class="panel-card-title">LPI orientation</div>
-                  <div class="surf-canvas-wrap">
-                    <canvas ref="surfCanvasLPI"></canvas>
-                    <div class="surf-overlay" v-if="surfStatus.LPI === 'loading'"><div class="spinner"></div></div>
-                    <div class="surf-overlay surf-empty" v-if="surfStatus.LPI === 'empty'">No LPI surface data for this selection</div>
-                    <div class="surf-overlay surf-empty" v-if="surfStatus.LPI === 'nomembers'">Cluster membership couldn't be computed for this threshold</div>
-                    <div class="surf-overlay surf-empty" v-if="surfStatus.LPI === 'nowebgl'">3D view unavailable (WebGL failed to start in this browser)</div>
-                  </div>
-                  <div class="surf-legend" v-if="surfStatus.LPI === 'ready'">
-                    <span>0</span><div class="legend-grad hot"></div><span>{{ surfMax.LPI.toFixed(2) }}</span>
-                  </div>
+                <div class="brain-legend" v-if="brain.status === 'ready' && brain.mode !== 'none'" :class="{ raised: brain.atlas && atlasInfo }">
+                  <template v-if="brain.mode === 'bytract'">
+                    <span v-for="t in brainTints" :key="t.tract" class="tint" :class="{ active: hoverTract === t.tract }"
+                          @click="selectTractAndSwitch(t.tract)" :title="t.tract + ' — open in Tract view'">
+                      <i :style="{ background: t.color }"></i>{{ tractLabel(t.tract) }}
+                    </span>
+                  </template>
+                  <template v-else>
+                    <span class="lg-label">endpoint density</span>
+                    <span>0</span><div class="legend-grad" :style="{ background: brain.atlas ? glowLegendCss : brainLegendCss }"></div><span>{{ brain.max.toFixed(2) }}</span>
+                  </template>
                 </div>
               </div>
-              <div class="text-muted" style="font-size:12px;margin:2px 0 20px;">
-                Drag to rotate, scroll to zoom. Both orientation conventions are shown side-by-side
-                as defined in our dataset.
-              </div>
-            </template>
+                <div class="brain-legend atlas-legend" v-if="brain.atlas && atlasInfo">
+                  <span class="lg-label">{{ atlasInfo.title }} · <a href="#" @click.prevent="goToSection('networks')">change atlas</a> · <a href="#" @click.prevent="setAtlas(false)">hide</a></span>
+                  <span v-for="(nm, i) in atlasInfo.names" :key="nm" class="tint" :class="{ active: focusNetwork === nm, hot: hoverNetwork === nm, muted: focusNetwork && focusNetwork !== nm }"
+                        @click="toggleNetwork(nm)" @mouseenter="hoverNetwork = nm" @mouseleave="hoverNetwork = null" :title="'Click to isolate ' + nm">
+                    <i :style="{ background: atlasInfo.colors[i] }"></i>{{ nm }}
+                  </span>
+                </div>
+            </div>
+`;
 
+// First-visit guide shown at the top of the Cluster / Tract views until dismissed.
+const GUIDE_TEMPLATE = `
+          <div class="guide" v-if="!guideDismissed">
+            <div>
+              <h3>Explore in three steps</h3>
+              <p>This site accompanies Ray et al. — every panel is computed live from the paper's data.</p>
+              <ol>
+                <li><b>Pick a cluster</b> of functionally similar tracts (left panel or dendrogram).</li>
+                <li><b>Choose a tract</b> to see its cortical endpoints and how each endpoint decodes.</li>
+                <li><b>Click a topic bar</b> to read the full term list behind that cognitive topic.</li>
+              </ol>
+            </div>
+            <button class="dismiss" @click="dismissGuide">Got it, hide this</button>
+          </div>
+`;
+
+
+// "At a glance" strip shown under the selection header in both views.
+const GLANCE_TEMPLATE = `
+            <aside class="glance" data-tour="glance">
+              <div class="glance-card">
+                <div class="glance-title">Top topics <span>joint decoding · r</span></div>
+                <div class="glance-topics" v-if="glanceTopics.length">
+                  <button v-for="item in glanceTopics" :key="item.topic" class="glance-row" :class="{ active: selectedTopic === item.topic }"
+                          @click="openTopic(item.topic)" :title="'Open topic: ' + topicLabel(item.topic)"
+                          @mouseenter="hoverTopic = item.topic" @mouseleave="hoverTopic = null">
+                    <span class="glance-label">{{ topicLabel(item.topic) }}</span>
+                    <span class="glance-track"><i :style="{ width: (Math.abs(item.value) / glanceMax * 100) + '%', background: item.value >= 0 ? '#e57536' : '#3b9fd0' }"></i></span>
+                    <span class="glance-val">{{ item.value.toFixed(2) }}</span>
+                  </button>
+                </div>
+                <div class="glance-empty" v-else>No decoding at this threshold</div>
+                <button class="glance-more" @click="goToSection('topics')">All top topics →</button>
+              </div>
+              <div class="glance-card">
+                <div class="glance-title">Best networks <span>{{ networkAtlas || '' }} · Dice</span></div>
+                <div class="glance-topics" v-if="glanceNetworks.length">
+                  <div v-for="item in glanceNetworks" :key="item.name" class="glance-row static" :title="item.sig ? 'spin-test p < 0.05' : 'not significant'">
+                    <span class="glance-label" :class="{ 'network-sig': item.sig }">{{ item.name }}</span>
+                    <span class="glance-track"><i :style="{ width: item.widthPct + '%', background: glanceColor, opacity: item.sig ? 1 : .4 }"></i></span>
+                    <span class="glance-val">{{ item.dice.toFixed(2) }}{{ item.sig ? '*' : '' }}</span>
+                  </div>
+                </div>
+                <div class="glance-empty" v-else>No network correspondence for this threshold</div>
+                <button class="glance-more" @click="goToSection('networks')" v-if="networkAtlases.length">All networks &amp; atlases →</button>
+              </div>
+              <div class="glance-card glance-how">
+                <div class="glance-title">What you're looking at</div>
+                <p v-if="tab === 'cluster'">A group of tracts with similar functional profiles. The panels below use the union of their cortical endpoints: where they end, which cognitive topics that territory is associated with, and which brain networks it overlaps.</p>
+                <p v-else>One tract. Its two endpoint maps (RAS / LPI) are decoded jointly and separately against 104 cognitive topics, and compared with canonical brain networks.</p>
+                <button class="glance-more" @click="startTour()">Take the 2-minute tour →</button>
+              </div>
+            </aside>
+`;
+
+// Topics panel header: chart / list switch + what-it-shows line.
+const TOPICS_HEAD_TEMPLATE = `
+              <div class="section-title">
+                <div class="seg" role="group" aria-label="Topics display">
+                  <button :class="{ active: topicsMode === 'chart' }" @click="topicsMode = 'chart'">Profile</button>
+                  <button :class="{ active: topicsMode === 'list' }" @click="topicsMode = 'list'">Ranked list</button>
+                </div>
+              </div>
 `;
 
 // Cluster View: ONE combined map — every member tract's LPI and RAS
@@ -141,15 +298,43 @@ const CLUSTER_SURF_TEMPLATE = `
                   <div class="surf-overlay surf-empty" v-if="surfStatus.RAS === 'nomembers'">Cluster membership couldn't be computed for this threshold</div>
                   <div class="surf-overlay surf-empty" v-if="surfStatus.RAS === 'nowebgl'">3D view unavailable (WebGL failed to start in this browser)</div>
                 </div>
-                <div class="surf-legend" v-if="surfStatus.RAS === 'ready'">
-                  <span>0</span><div class="legend-grad" :style="{ background: clusterLegendCss }"></div><span>{{ surfMax.RAS.toFixed(2) }}</span>
+                <div class="controls">
+                  <span class="bar-legend" style="margin:0"><i style="background:#e57536"></i>positive r <i style="background:#3b9fd0;margin-left:10px"></i>negative r</span>
                 </div>
               </div>
-              <div class="text-muted" style="font-size:12px;margin:2px 0 20px;">
-                Union of the endpoint maps of all {{ activeCluster.tracts.length }} tracts in this cluster, both orientations.
-                Drag to rotate, scroll to zoom.
+              <p class="section-note" v-if="topicsMode === 'chart'">
+                Every one of the 104 NeuroQuery topics, placed by its correlation (Pearson r) with the endpoint map; stacked dots share the same value.
+                <template v-if="tab === 'tract'">The three lanes share one axis, so a topic that only one endpoint carries stands out at a glance.</template>
+                The strongest topics are labelled. Hover for the name and value; click a dot or a label to open the topic's term list (step 3).
+              </p>
+              <p class="section-note" v-else>
+                The strongest topics as a ranked list with exact values<template v-if="tab === 'tract'">, for the joint map and each endpoint on its own</template>. Click a topic to open its term list.
+              </p>
+`;
+
+// Networks panel: link the rows to the brain.
+const NETWORK_TOOLS_TEMPLATE = `
+              <div class="net-tools">
+                <button class="btn small" :class="{ primary: brain.atlas }" @click="setAtlas(!brain.atlas)">
+                  {{ brain.atlas ? 'Shown on the brain' : 'Show on the brain' }}
+                </button>
+                <label class="opacity" v-if="brain.atlas" title="How strongly the networks are painted on the cortex">
+                  <span>Opacity</span>
+                  <input type="range" min="0.1" max="1" step="0.05" v-model.number="brain.atlasOpacity" @input="onAtlasOpacity" aria-label="Network opacity" />
+                  <b>{{ Math.round(brain.atlasOpacity * 100) }}%</b>
+                </label>
+                <span class="net-hint" v-if="brain.atlas">Hover a row to find it on the cortex, click to isolate.<template v-if="focusNetwork"> <a href="#" @click.prevent="focusNetwork = null; queueSurfRefresh()">Show all</a>.</template></span>
               </div>
-            </template>
+`;
+
+// Sub-tabs: one panel on screen at a time.
+const SUBTABS_TEMPLATE = `
+            <nav class="subtabs" aria-label="Sections" data-tour="subtabs">
+              <button v-for="st in subTabs" :key="st.id" class="subtab" :class="{ active: subTab === st.id }"
+                      :disabled="!st.available" @click="goToSection(st.id)" :title="st.hint">
+                <b>{{ st.label }}</b><small>{{ st.hint }}</small>
+              </button>
+            </nav>
 `;
 
 // ─── Main component ────────────────────────────────────────────────
@@ -159,149 +344,208 @@ Vue.component('wmc-viewer', {
   template: `
   <div class="wmc-root">
 
-    <!-- ── Header ─────────────────────────────────────────── -->
-    <header class="wmc-header">
-      <a href="index.html" class="wmc-home-link" title="Back to overview">←</a>
-      <div class="wmc-title">WMC Tract <span>Endpoint Decoding</span></div>
-      <div class="header-spacer"></div>
-      <div class="control-group" data-tour="threshold">
-        <label>Threshold</label>
-        <select v-model="selectedThreshold" @change="onThresholdChange">
-          <option v-for="(folder, label) in config.thresholds" :key="label" :value="label">{{ label }}</option>
-        </select>
-      </div>
-      <div class="control-group" v-if="numClusters > 0">
-        <label>Clusters</label>
-        <span class="stat-chip">{{ numClusters }}</span>
-      </div>
-      <div class="control-group" v-if="tractOrder.length > 0">
-        <label>Tracts</label>
-        <span class="stat-chip">{{ tractOrder.length }}</span>
-      </div>
-      <button class="tour-help-btn" @click="startTour" title="Replay the intro tour">? Help</button>
+    <!-- ── Header (lab style) ──────────────────────────────── -->
+    <header class="site-header wide">
+      <div class="bar">
+        <button class="icon-btn sidebar-toggle" @click="sidebarOpen = !sidebarOpen" aria-label="Toggle tract list">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+        <a class="site-title" href="index.html" title="Back to the overview"><img class="mark" src="assets/img/mark.svg" alt="" /><span class="words"><b>White Matter Tract Explorer</b><span>Ray et al. · companion site</span></span></a>
+        <nav class="nav">
+          <div class="control-group" data-tour="threshold" title="Endpoint-density threshold used to define tract endpoints (and the number of clusters it yields)">
+            <label>Threshold</label>
+            <select class="select" v-model="selectedThreshold" @change="onThresholdChange">
+              <option v-for="(folder, label) in config.thresholds" :key="label" :value="label">{{ label }}</option>
+            </select>
+          </div>
+          <span class="stat-chip hide-sm" v-if="tractOrder.length">{{ tractOrder.length }} tracts · {{ topics.length }} topics</span>
+          <a class="lab-link hide-sm" href="https://pestillilab.github.io/" target="_blank" rel="noopener" title="A project of the Pestilli Lab, UT Austin"><img src="assets/img/pestilli-lab.svg" alt="Pestilli Lab" /></a>
+          <button class="btn small" @click="startTour()" data-tour="tour-btn" title="Guided walkthrough of every panel">Tour</button>
+          <button class="icon-btn" @click="helpOpen = true" aria-label="How to use the explorer" title="How to use the explorer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"/></svg>
+          </button>
+        </nav>
+        </div>
     </header>
+
+    <!-- ── Workflow stepper ─────────────────────────────────── -->
+    <div class="stepper" role="tablist" aria-label="Explore workflow" data-tour="stepper">
+      <button class="step-btn" role="tab" :class="{ active: tab==='cluster', done: !!selectedCluster }" @click="showClusterView" v-if="clustersEnabled" :aria-selected="tab==='cluster'">
+        <span class="step-num">1</span>
+        <span class="step-text">
+          <small>Cluster</small>
+          <span v-if="activeCluster"><span class="step-dot" :style="{ background: activeCluster.color }"></span> Cluster {{ selectedCluster }}</span>
+          <span v-else class="placeholder">Pick a cluster</span>
+        </span>
+      </button>
+      <span class="sep" v-if="clustersEnabled">›</span>
+      <button class="step-btn" role="tab" :class="{ active: tab==='tract', done: !!selectedTract }" @click="showTractView" :aria-selected="tab==='tract'">
+        <span class="step-num">2</span>
+        <span class="step-text">
+          <small>Tract</small>
+          <span v-if="selectedTract"><span class="step-dot" :style="{ background: tractClusterColor(selectedTract) }"></span> {{ tractLabel(selectedTract) }}</span>
+          <span v-else class="placeholder">Choose a tract</span>
+        </span>
+      </button>
+      <span class="sep">›</span>
+      <button class="step-btn" role="tab" :class="{ done: !!selectedTopic }" :disabled="!selectedTopic" @click="scrollToTopic" :aria-selected="!!selectedTopic">
+        <span class="step-num">3</span>
+        <span class="step-text">
+          <small>Topic</small>
+          <span v-if="selectedTopic">{{ topicLabel(selectedTopic) }}</span>
+          <span v-else class="placeholder">Click a topic bar</span>
+        </span>
+      </button>
+      <span class="spacer"></span>
+      <button class="step-btn alt" role="tab" :class="{ active: tab==='matrix' }" @click="tab='matrix'" :aria-selected="tab==='matrix'" data-tour="matrix-btn">
+        <span class="step-text"><small>Or browse</small><span>Full matrix</span></span>
+      </button>
+    </div>
 
     <!-- ── Body ───────────────────────────────────────────── -->
     <div class="wmc-body">
 
-      <!-- ── Sidebar ──────────────────────────────────────── -->
-      <nav class="wmc-sidebar">
+      <div class="sidebar-backdrop" v-if="sidebarOpen" @click="sidebarOpen = false"></div>
 
-        <!-- Sidebar mode tabs -->
-        <div class="sidebar-tabs" data-tour="sidebar-tabs">
-          <button class="stab" :class="{active: sideMode==='clusters'}" @click="sideMode='clusters'" v-if="clustersEnabled">
-            Clusters
-          </button>
-          <button class="stab" :class="{active: sideMode==='tracts'}" @click="sideMode='tracts'">
-            Tracts
-          </button>
+      <!-- ── Sidebar: clusters → tracts tree ──────────────── -->
+      <nav class="wmc-sidebar" :class="{ open: sidebarOpen }" aria-label="Clusters and tracts">
+        <div class="sidebar-head">
+          <label class="search" data-tour="tract-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            <input v-model="tractSearch" placeholder="Find a tract (e.g. arcuate, SLF, left…)" aria-label="Search tracts" @keydown.enter="openFirstMatch" />
+            <button v-if="tractSearch" @click="tractSearch = ''" aria-label="Clear search">×</button>
+          </label>
         </div>
+        <div class="sidebar-scroll" data-tour="sidebar">
+          <div class="cluster-chips" v-if="clustersEnabled && clusters.length">
+            <button v-for="c in clusters" :key="c.id" class="chip" :class="{ active: tab === 'cluster' && selectedCluster === c.id }"
+                    @click="selectCluster(c.id)" :title="c.tracts.length + ' tracts — click to view cluster ' + c.id">
+              <i :style="{ background: c.color }"></i>{{ c.id }}<small>{{ c.tracts.length }}</small>
+            </button>
+          </div>
+          <div class="sidebar-tabs" data-tour="sidebar-tabs">
+            <button class="stab" :class="{ active: sideMode === 'clusters' }" @click="sideMode = 'clusters'" v-if="clustersEnabled">Clusters</button>
+            <button class="stab" :class="{ active: sideMode === 'tracts' }" @click="sideMode = 'tracts'">Tracts</button>
+          </div>
 
-        <!-- CLUSTER MODE -->
-        <template v-if="sideMode==='clusters'">
-          <div class="sidebar-section">Dendrogram</div>
-          <div class="dendro-wrap" data-tour="dendrogram" v-if="clustering">
-            <tract-dendrogram
-              :clustering="clustering"
-              :colors="clusterColors"
-              :selected-cluster="selectedCluster"
-              :selected-tract="selectedTract"
-              @select-cluster="selectCluster"
-              @select-tract="selectTractAndSwitch"
-            ></tract-dendrogram>
-            <div class="dendro-note">
-              Complete linkage on 1 − r, cut at {{ clustering.cut }}.
-              <template v-if="clustering.excluded.length">
-                Not clustered (missing decoding scores): {{ clustering.excluded.join(', ') }}.
-              </template>
+          <template v-if="sideMode === 'clusters'">
+            <div class="sidebar-section">Dendrogram</div>
+            <div class="dendro-wrap" data-tour="dendrogram" v-if="clustering">
+              <tract-dendrogram
+                :clustering="clustering"
+                :colors="clusterColors"
+                :selected-cluster="selectedCluster"
+                :selected-tract="selectedTract"
+                :labels="tractLabels"
+                :highlight="tractSearch.trim() ? filteredTracts : null"
+                :row-height="17"
+                :width="330"
+                :tree-width="104"
+                @select-cluster="selectCluster"
+                @select-tract="selectTractAndSwitch"
+              ></tract-dendrogram>
+              <div class="dendro-note">
+                Tracts grouped by how similar their decoding profiles are (complete linkage on 1 − r, cut at {{ clustering.cut }}).
+                Click a branch to view its cluster, a name to open that tract.
+                <template v-if="clustering.excluded.length">
+                  Not clustered (missing scores): {{ clustering.excluded.map(tractLabel).join(', ') }}.
+                </template>
+              </div>
             </div>
-          </div>
-          <div class="sidebar-section">Clusters</div>
-          <div class="cluster-list" data-tour="cluster-list">
-            <button
-              v-for="c in clusters"
-              :key="c.id"
-              class="cluster-btn"
-              :class="{ active: selectedCluster === c.id }"
-              @click="selectCluster(c.id)"
-            >
-              <span class="cluster-dot" :style="{ background: c.color }"></span>
-              <span class="cluster-label">Cluster {{ c.id }}</span>
-              <span class="cluster-count" v-if="c.tracts.length">{{ c.tracts.length }} {{ c.tracts.length === 1 ? 'tract' : 'tracts' }}</span>
-            </button>
-          </div>
-        </template>
+            <div class="tree" v-else>
+              <div class="tree-tracts">
+                <button v-for="t in filteredTracts" :key="t" class="tract-btn" :class="{ active: tab === 'tract' && selectedTract === t }"
+                        @click="selectTractAndSwitch(t)" :title="t">
+                  <span class="cluster-dot" :style="{ background: tractClusterColor(t) }"></span>
+                  <span class="tract-btn-label">{{ tractLabel(t) }}</span><span class="side">{{ tractSide(t) }}</span>
+                </button>
+              </div>
+            </div>
+            <div class="sidebar-section" data-tour="cluster-list">Clusters</div>
+            <div class="cluster-list">
+              <button v-for="c in clusters" :key="c.id" class="cluster-btn" :class="{ active: selectedCluster === c.id }"
+                      @click="selectCluster(c.id)" :title="c.tracts.length + ' tracts'">
+                <span class="cluster-dot" :style="{ background: c.color }"></span>
+                <span class="cluster-label">Cluster {{ c.id }}</span>
+                <span class="cluster-count">{{ c.tracts.length }} {{ c.tracts.length === 1 ? 'tract' : 'tracts' }}</span>
+              </button>
+            </div>
+          </template>
 
-        <!-- TRACT MODE -->
-        <template v-else>
-          <div class="sidebar-section" data-tour="tract-search" style="display:flex;align-items:center;gap:8px;">
-            <span>Tracts</span>
-            <input
-              class="tract-search"
-              v-model="tractSearch"
-              placeholder="Search…"
-              @focus="tractSearch=''"
-            />
-          </div>
-          <div class="cluster-list">
-            <button
-              v-for="t in filteredTracts"
-              :key="t"
-              class="tract-btn"
-              :class="{ active: selectedTract === t }"
-              @click="selectTract(t)"
-            >
-              <span class="cluster-dot" :style="{ background: tractClusterColor(t) }"></span>
-              <span class="tract-btn-label">{{ t }}</span>
-              <span class="cluster-count">C{{ tractClusterIndex(t) }}</span>
-            </button>
-          </div>
-        </template>
+          <template v-else>
+            <div class="sidebar-section">{{ tractSearch ? matchCount + ' of ' + tractOrder.length + ' tracts' : 'Tracts · ' + tractOrder.length }}</div>
+            <div class="tree tree-tracts">
+              <button v-for="t in filteredTracts" :key="t" class="tract-btn" :class="{ active: tab === 'tract' && selectedTract === t }"
+                      @click="selectTractAndSwitch(t)" :title="t">
+                <span class="cluster-dot" :style="{ background: tractClusterColor(t) }"></span>
+                <span class="tract-btn-label">{{ tractLabel(t) }}</span><span class="side">{{ tractSide(t) }}</span>
+              </button>
+            </div>
+          </template>
+        </div>
       </nav>
 
       <!-- ── Content ──────────────────────────────────────── -->
       <main class="wmc-content">
 
-        <!-- Tabs -->
-        <div class="wmc-tabs" data-tour="view-tabs">
-          <button class="tab-btn" :class="{active: tab==='cluster'}" @click="showClusterView" v-if="clustersEnabled">Cluster View</button>
-          <button class="tab-btn" :class="{active: tab==='tract'}"   @click="showTractView">Tract View</button>
-          <button class="tab-btn" :class="{active: tab==='matrix'}"  @click="tab='matrix'">Full Matrix</button>
-        </div>
-
         <!-- Loading -->
         <div class="tab-panel" v-if="loading">
-          <div class="loading"><div class="spinner"></div>Loading data…</div>
+          <div class="loading"><div class="spinner"></div>Loading decoding data…</div>
         </div>
 
         <!-- ── CLUSTER VIEW TAB ──────────────────────────── -->
         <div class="tab-panel" v-else-if="tab==='cluster'">
-          <p class="view-intro">
-            Tracts grouped by how similar their functional profile is. Pick a cluster from the sidebar
-            (or a branch of the dendrogram) to see its combined endpoint map and top cognitive topics.
-          </p>
           <div v-if="!selectedCluster" class="empty-state">
-            Select a cluster from the sidebar (or switch to "Clusters" mode) to explore its decoding profile.
+            Pick a cluster from the list on the left to see its combined endpoint map and decoding profile.
           </div>
           <div v-else>
-            <div class="panel-cluster-header" :style="{ borderColor: activeCluster.color }">
-              <span class="panel-cluster-dot" :style="{ background: activeCluster.color }"></span>
-              <strong>Cluster {{ selectedCluster }}</strong>
-              <span class="text-muted" style="margin-left:8px;" v-if="activeCluster.tracts.length">{{ activeCluster.tracts.length }} {{ activeCluster.tracts.length === 1 ? 'tract' : 'tracts' }}</span>
-              <span class="text-muted" v-else>Cluster membership couldn't be computed for this threshold.</span>
-              <!-- member tracts, just below the cluster label (click → Tract View) -->
-              <div class="header-tract-list" v-if="activeCluster.tracts.length">
-                <span
-                  class="tract-tag"
-                  v-for="t in activeCluster.tracts"
-                  :key="t"
-                  :style="{ borderColor: activeCluster.color }"
-                  @click="selectTractAndSwitch(t)"
-                  title="Click to explore this tract"
-                >{{ t }}</span>
+            <div class="sel-head" data-tour="selection">
+              <div>
+                <p class="eyebrow"><span class="step-dot" :style="{ background: activeCluster.color }"></span> Step 1 · Cluster</p>
+                <h2>Cluster {{ selectedCluster }} <span class="raw">{{ activeCluster.tracts.length }} {{ activeCluster.tracts.length === 1 ? 'tract' : 'tracts' }} · threshold {{ selectedThreshold.split(' ')[0] }}</span></h2>
+                <p class="summary" v-if="activeCluster.tracts.length">
+                  Tracts whose topic-decoding profiles cluster together. Everything here is computed from the
+                  <em>union</em> of the member tracts' endpoint maps. Click a tract to go to step 2.
+                </p>
+                <p class="summary" v-else>Cluster membership couldn't be computed for this threshold.</p>
+                <div class="tract-tags" v-if="activeCluster.tracts.length">
+                  <button class="tract-tag" v-for="t in activeCluster.tracts" :key="t" :style="{ borderColor: activeCluster.color }"
+                          @click="selectTractAndSwitch(t)" :title="t + ' — open in Tract view'">{{ tractLabel(t) }}</button>
+                </div>
               </div>
             </div>
 
+            <!-- Workspace: the brain stays put on the left; the sections live on the right -->
+            <div class="workspace">
+              <div class="ws-brain" data-tour="map">${BRAIN_TEMPLATE}</div>
+              <div class="ws-panels">
+            ${SUBTABS_TEMPLATE}
+            <section class="subpanel" id="sec-map" data-section="map">
+              <h3 class="sec-head"><span>Overview</span><small>Top topics, best networks, what this is</small></h3>
+              ${GLANCE_TEMPLATE}
+            </section>
+
+            <!-- Topics -->
+            <section class="subpanel" id="sec-topics" data-tour="topics" data-section="topics">
+              <h3 class="sec-head"><span>Topics</span><small>All 104 cognitive topics decoded from the endpoint map</small></h3>
+              <template v-if="clusterMatrix[selectedCluster]">
+                ${TOPICS_HEAD_TEMPLATE}
+                <div class="topics-row" :class="{ stack: topicsMode === 'chart' }">
+                  <div class="profile-wrap" v-if="topicsMode === 'chart'">
+                    <topic-profile :lanes="profileLanes" :selected-topic="selectedTopic" :hover-topic="hoverTopic"
+                                   @select-topic="toggleTopic($event)" @hover-topic="hoverTopic = $event"></topic-profile>
+                  </div>
+                  <div class="topic-bars" v-else>
+                    <div v-for="item in clusterTopTopics" :key="item.topic" class="topic-bar-row clickable"
+                         :class="{ active: selectedTopic === item.topic, hot: hoverTopic === item.topic }" role="button" tabindex="0"
+                         @click="toggleTopic(item.topic)" @keydown.enter.space.prevent="toggleTopic(item.topic)"
+                         @mouseenter="hoverTopic = item.topic" @mouseleave="hoverTopic = null">
+                      <div class="topic-bar-label" :title="'Click to see all terms in ' + item.topic">{{ topicLabel(item.topic) }}</div>
+                      <div class="topic-bar-track">
+                        <div class="topic-bar-fill" :style="{ width: clusterBarWidth(item.value) + '%', background: item.value >= 0 ? '#e57536' : '#3b9fd0' }"></div>
+                        <span class="topic-bar-val">{{ item.value.toFixed(3) }}</span>
+                      </div>
+                    </div>
             ${CLUSTER_SURF_TEMPLATE}
 
             <!-- Live decoding scores for this cluster (if cluster-matrix.csv exists for this threshold) -->
@@ -323,25 +567,47 @@ Vue.component('wmc-viewer', {
                     ></div>
                     <span class="topic-bar-val">{{ item.value.toFixed(3) }}</span>
                   </div>
+                  ${TOPIC_PANEL_TEMPLATE}
+                </div>
+              </template>
+              <div v-else class="network-corr-empty">No cluster-level decoding for this threshold.</div>
+            </section>
+
+            <!-- Radar + word cloud -->
+            <section class="subpanel" id="sec-charts" data-tour="charts" data-section="charts">
+              <h3 class="sec-head"><span>Radar &amp; word cloud</span><small>The paper's figures (Figs. 3–4), drawn live</small></h3>
+              <div class="section-title">
+                <div class="controls" style="margin-left:0">
+                  <label class="chart-term-toggle" v-if="topicTerms && Object.keys(topicTerms).length" style="margin:0">
+                    <input type="checkbox" v-model="topicFunctionalOnly" /> Functional terms only
+                  </label>
                 </div>
               </div>
-              ${TOPIC_PANEL_TEMPLATE}
+              <p class="section-note">The paper's figures, drawn live from the same decoding scores. Hover a bar or a word to see them light up together; click one to open its topic (step 3). With “Functional terms only” on (as in Ray et al.), labels use each topic's functional terms.</p>
+              <div class="tract-img-row" v-if="clusterScores">
+                <div class="panel-card">
+                  <div class="panel-card-title">Radar chart<span v-if="chartTermSets">functional terms</span></div>
+                  <topic-radar :scores="clusterScores" :color="activeCluster.color" :term-sets="chartTermSets" :selected-topic="selectedTopic" :hover-topic="hoverTopic" @select-topic="openTopic" @hover-topic="hoverTopic = $event"></topic-radar>
+                </div>
+                <div class="panel-card">
+                  <div class="panel-card-title">Word cloud<span v-if="chartTermSets">functional terms</span></div>
+                  <topic-wordcloud :scores="clusterScores" :color="activeCluster.color" :term-sets="chartTermSets" :selected-topic="selectedTopic" :hover-topic="hoverTopic" @select-topic="openTopic" @hover-topic="hoverTopic = $event"></topic-wordcloud>
+                </div>
               </div>
-            </template>
+              <div v-else class="network-corr-empty">No cluster-level decoding for this threshold.</div>
+            </section>
 
-            <label class="chart-term-toggle" v-if="topicTerms && Object.keys(topicTerms).length">
-              <input type="checkbox" v-model="topicFunctionalOnly" />
-              Functional terms only <span class="text-muted">— radar labels &amp; word cloud use each topic's full list of functional terms</span>
-            </label>
-            <div class="tract-img-row" v-if="clusterScores">
-              <div class="panel-card">
-                <div class="panel-card-title">Radar Chart<span v-if="chartTermSets"> · functional terms</span></div>
-                <topic-radar :scores="clusterScores" :color="activeCluster.color" :term-sets="chartTermSets"></topic-radar>
-              </div>
-              <div class="panel-card">
-                <div class="panel-card-title">Word Cloud<span v-if="chartTermSets"> · functional terms</span></div>
-                <topic-wordcloud :scores="clusterScores" :color="activeCluster.color" :term-sets="chartTermSets"></topic-wordcloud>
-              </div>
+            <!-- Network correspondence -->
+            <section class="subpanel" id="sec-networks" data-tour="networks" data-section="networks">
+              <h3 class="sec-head"><span>Networks</span><small>Overlap with canonical brain networks (Dice, spin test)</small></h3>
+              <div class="section-title">
+                <div class="controls" style="margin-left:0">
+                  <label>Atlas
+                    <select class="select" v-model="networkAtlas" style="margin-left:6px">
+                      <option v-for="a in networkAtlases" :key="a" :value="a">{{ atlasLabel(a) }}</option>
+                    </select>
+                  </label>
+                </div>
             </div>
 
             <!-- Network Correspondence: Dice overlap with canonical network atlases -->
@@ -355,120 +621,93 @@ Vue.component('wmc-viewer', {
                   </select>
                 </label>
               </div>
-              <p class="view-intro">
-                Dice overlap between this cluster's combined endpoint map and each network in the selected
+              <p class="section-note">
+                Dice overlap between this cluster's combined endpoint map and each network of the selected
                 atlas, from the <a href="https://www.nature.com/articles/s41467-025-58176-9" target="_blank" rel="noopener">Network Correspondence Toolbox</a>
-                (Kong et al., 2025). Bold / starred networks are spin-test significant (p &lt; 0.05).
+                (Kong et al., 2025). Bold / starred networks are spin-test significant (p &lt; 0.05); non-significant bars are faded.
               </p>
+              ${NETWORK_TOOLS_TEMPLATE}
               <div v-if="clusterNetworkRows.length" class="topic-bars">
-                <div v-for="item in clusterNetworkRows" :key="item.name" class="topic-bar-row">
+                <div v-for="item in clusterNetworkRows" :key="item.name" class="topic-bar-row clickable"
+                     :class="{ active: focusNetwork === item.name, hot: hoverNetwork === item.name }" role="button" tabindex="0"
+                     @click="toggleNetwork(item.name)" @keydown.enter.space.prevent="toggleNetwork(item.name)"
+                     @mouseenter="hoverNetwork = item.name" @mouseleave="hoverNetwork = null">
                   <div class="topic-bar-label" :class="{ 'network-sig': item.sig }" :title="item.name">{{ item.name }}</div>
                   <div class="topic-bar-track">
-                    <div class="topic-bar-fill"
-                         :style="{ width: item.widthPct + '%', background: activeCluster.color, opacity: item.sig ? 1 : 0.35 }"></div>
+                    <div class="topic-bar-fill" :style="{ width: item.widthPct + '%', background: networkColor(item.name) || activeCluster.color, opacity: item.sig ? 1 : 0.35 }"></div>
                     <span class="topic-bar-val">{{ item.dice.toFixed(3) }}{{ item.sig ? ' *' : '' }}</span>
                   </div>
                 </div>
               </div>
-              <div v-else class="network-corr-empty">
-                Cluster-level network correspondence has not been recalculated for this revised cluster solution.
+              <div v-else class="network-corr-empty">No {{ networkAtlas }} correspondence for this cluster.</div>
+            </section>
               </div>
-            </template>
+            </div>
 
-            <!-- Mini strip: all topics for this cluster -->
-            <template v-if="clusterMatrix[selectedCluster]">
-              <div class="tract-section-title" style="margin-top:24px;">All Topics (decoding score)</div>
-              <div class="tract-strip-wrap">
-                <div class="tract-strip">
-                  <div
-                    v-for="topic in topics"
-                    :key="topic"
-                    class="strip-cell"
-                    :style="{ background: clusterCellColor(selectedCluster, topic) }"
-                    @mousemove="showClusterTip($event, selectedCluster, topic)"
-                    @mouseleave="hideTip"
-                  ></div>
-                </div>
-                <div class="strip-legend">
-                  <span>{{ vmin.toFixed(2) }}</span>
-                  <div class="legend-grad"></div>
-                  <span>{{ vmax.toFixed(2) }}</span>
-                  <span style="margin-left:16px;color:var(--text-muted)">r</span>
-                </div>
-              </div>
-            </template>
-
-            <details class="cluster-analysis-details">
-              <summary>Cluster quality and downloadable results</summary>
-              <p class="text-muted">
-                The displayed cluster solution uses the joint LPI + RAS maps and a distance cut of 1.32.
-                Quality metrics below include LPI, RAS, and joint clustering.
-              </p>
-              <div v-if="analysisSummary.length" class="quality-table-wrap">
-                <table class="quality-table">
-                  <thead><tr><th>Mode</th><th>Complete tracts</th><th>Clusters at cut</th><th>Cophenetic r</th></tr></thead>
-                  <tbody>
-                    <tr v-for="row in analysisSummary" :key="row.mode">
-                      <td>{{ row.mode }}</td>
-                      <td>{{ row.n_complete_tracts }} / {{ row.n_available_tracts }}</td>
-                      <td>{{ row.n_clusters_at_cut1_32 }}</td>
-                      <td>{{ formatQuality(row.cophenetic_correlation) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <div v-if="clusterQuality.length" class="quality-table-wrap">
-                <table class="quality-table">
-                  <thead><tr><th>Mode</th><th>Requested k</th><th>Actual k</th><th>Complete tracts</th><th>Silhouette</th><th>Dunn</th></tr></thead>
-                  <tbody>
-                    <tr v-for="row in clusterQuality" :key="row.mode + '-' + row.requested_n_clusters">
-                      <td>{{ row.mode }}</td>
-                      <td>{{ row.requested_n_clusters }}</td>
-                      <td>{{ row.actual_n_clusters }}</td>
-                      <td>{{ row.n_complete_tracts }}</td>
-                      <td>{{ formatQuality(row.silhouette_score) }}</td>
-                      <td>{{ formatQuality(row.dunn_index) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <p class="analysis-downloads">
-                <a :href="baseUrl + '/matrix.csv'" download>Joint tract decoding</a>
-                <a :href="baseUrl + '/matrix_LPI.csv'" download>LPI tract decoding</a>
-                <a :href="baseUrl + '/matrix_RAS.csv'" download>RAS tract decoding</a>
-                <a :href="baseUrl + '/cluster-matrix.csv'" download>Joint cluster decoding</a>
-                <a :href="baseUrl + '/cluster-matrix_LPI.csv'" download>LPI cluster decoding</a>
-                <a :href="baseUrl + '/cluster-matrix_RAS.csv'" download>RAS cluster decoding</a>
-                <a :href="baseUrl + '/cluster-quality.csv'" download>Quality metrics CSV</a>
-                <a :href="baseUrl + '/analysis-summary.csv'" download>Clustering summary CSV</a>
-              </p>
-            </details>
           </div>
         </div>
 
         <!-- ── TRACT VIEW TAB ────────────────────────────── -->
         <div class="tab-panel" v-else-if="tab==='tract'">
-          <p class="view-intro">
-            One tract at a time: its 3D cortical endpoint map and decoding scores, with each
-            endpoint (RAS/LPI) broken out alongside the combined result. Search or pick a tract from the sidebar.<br />
-            White matter tracts were defined from
-            <a href="https://academic.oup.com/cercor/article/32/20/4524/6528900" target="_blank" rel="noopener">this atlas</a>
-            using the <a href="https://brainlife.io/app/5cc73ef44ed9df00317f6288" target="_blank" rel="noopener">brainlife.io app</a>.
-          </p>
           <div v-if="!selectedTract" class="empty-state">
-            Select a tract from the sidebar (switch to "Tracts" mode) to explore its decoding profile.
+            Choose a tract from the list on the left (or search for one) to see its endpoint map and decoding profile.
           </div>
           <div v-else>
-            <div class="panel-cluster-header" :style="{ borderColor: tractClusterColor(selectedTract) }">
-              <span class="panel-cluster-dot" :style="{ background: tractClusterColor(selectedTract) }"></span>
-              <strong>{{ selectedTract }}</strong>
-              <span class="text-muted" style="margin-left:8px;" v-if="clusterAssignments[selectedTract]">Cluster {{ tractClusterIndex(selectedTract) }}</span>
-              <span class="text-muted" style="margin-left:8px;" v-else>Not clustered (missing decoding scores at this threshold)</span>
-              <button class="show-cluster-btn" v-if="clusterAssignments[selectedTract]" @click="jumpToCluster(tractClusterIndex(selectedTract))">
-                View cluster →
-              </button>
+            <div class="sel-head" data-tour="selection">
+              <div>
+                <p class="eyebrow"><span class="step-dot" :style="{ background: tractClusterColor(selectedTract) }"></span> Step 2 · Tract</p>
+                <h2>{{ tractLabel(selectedTract) }} <span class="raw">{{ selectedTract }} · threshold {{ selectedThreshold.split(' ')[0] }}</span></h2>
+                <p class="summary">
+                  <template v-if="clusterAssignments[selectedTract]">
+                    Member of <a href="#" @click.prevent="jumpToCluster(tractClusterIndex(selectedTract))">Cluster {{ tractClusterIndex(selectedTract) }}</a>
+                    with {{ siblingTracts.length }} other {{ siblingTracts.length === 1 ? 'tract' : 'tracts' }}.
+                  </template>
+                  <template v-else>Not clustered at this threshold (missing decoding scores).</template>
+                  Defined by the <a href="https://academic.oup.com/cercor/article/32/20/4524/6528900" target="_blank" rel="noopener">Bullock et al. (2022)</a> taxonomy
+                  via its <a href="https://brainlife.io/app/5cc73ef44ed9df00317f6288" target="_blank" rel="noopener">brainlife.io app</a>.
+                </p>
+                <div class="tract-tags" v-if="siblingTracts.length">
+                  <button class="tract-tag" v-for="t in siblingTracts" :key="t" :style="{ borderColor: tractClusterColor(t) }" @click="selectTractAndSwitch(t)" :title="t">{{ tractLabel(t) }}</button>
+                </div>
+              </div>
+              <div class="side">
+                <button class="btn small" v-if="clusterAssignments[selectedTract]" @click="jumpToCluster(tractClusterIndex(selectedTract))">← Back to cluster {{ tractClusterIndex(selectedTract) }}</button>
+              </div>
             </div>
 
+            <!-- Workspace: the brain stays put on the left; the sections live on the right -->
+            <div class="workspace">
+              <div class="ws-brain" data-tour="map">${BRAIN_TEMPLATE}</div>
+              <div class="ws-panels">
+            ${SUBTABS_TEMPLATE}
+            <section class="subpanel" id="sec-map" data-section="map">
+              <h3 class="sec-head"><span>Overview</span><small>Top topics, best networks, what this is</small></h3>
+              ${GLANCE_TEMPLATE}
+            </section>
+
+            <!-- Decoding: joint (LPI + RAS) vs. each endpoint on its own -->
+            <section class="subpanel" id="sec-topics" data-tour="topics" data-section="topics">
+              <h3 class="sec-head"><span>Topics</span><small>All 104 cognitive topics decoded from the endpoint map</small></h3>
+              ${TOPICS_HEAD_TEMPLATE}
+              <div class="topics-row" :class="{ stack: topicsMode === 'chart' }">
+                <div class="profile-wrap" v-if="topicsMode === 'chart'">
+                  <topic-profile :lanes="profileLanes" :selected-topic="selectedTopic" :hover-topic="hoverTopic"
+                                 @select-topic="toggleTopic($event)" @hover-topic="hoverTopic = $event"></topic-profile>
+                </div>
+                <div class="endpoint-cols" v-else>
+                  <div class="endpoint-col" v-for="src in endpointSources" :key="src.key">
+                    <div class="endpoint-col-title">{{ src.label }}</div>
+                    <div v-if="!src.has" class="endpoint-empty">No {{ src.key }}-only decoding for this tract at this threshold.</div>
+                    <div v-else class="topic-bars">
+                      <div v-for="item in src.top" :key="item.topic" class="topic-bar-row clickable"
+                           :class="{ active: selectedTopic === item.topic, hot: hoverTopic === item.topic }" role="button" tabindex="0"
+                           @click="toggleTopic(item.topic)" @keydown.enter.space.prevent="toggleTopic(item.topic)"
+                           @mouseenter="hoverTopic = item.topic" @mouseleave="hoverTopic = null">
+                        <div class="topic-bar-label" :title="'Click to see all terms in ' + item.topic">{{ topicLabel(item.topic) }}</div>
+                        <div class="topic-bar-track">
+                          <div class="topic-bar-fill" :style="{ width: sideBarWidth(item.value) + '%', background: item.value >= 0 ? '#e57536' : '#3b9fd0' }"></div>
+                          <span class="topic-bar-val">{{ item.value.toFixed(3) }}</span>
+                        </div>
 ${SURF_PANEL_TEMPLATE}
             <!-- Decoding: joint (LPI + RAS) vs. each endpoint on its own, side by side -->
             <div class="tract-section-title">Top Cognitive Topics — joint vs. each endpoint</div>
@@ -494,32 +733,51 @@ ${SURF_PANEL_TEMPLATE}
                     </div>
                   </div>
                 </div>
+                ${TOPIC_PANEL_TEMPLATE}
               </div>
-            ${TOPIC_PANEL_TEMPLATE}
-            </div>
+            </section>
 
-            <!-- Radar + word cloud for each decoding, same column order -->
-            <p class="view-intro" v-if="topicTerms && Object.keys(topicTerms).length">
-              Ray et al., 2026 included only functional terms — uncheck "Functional terms only" below
-              to see the full list of all terms for each topic. Topics are decoded with the
-              <a href="https://gradec.readthedocs.io/en/latest/index.html" target="_blank" rel="noopener">gradec</a>
-              toolbox (<a href="https://direct.mit.edu/imag/article/doi/10.1162/imag_a_00081/119100/Methods-for-decoding-cortical-gradients-of" target="_blank" rel="noopener">Peraza et al., 2024</a>).
-            </p>
-            <label class="chart-term-toggle" v-if="topicTerms && Object.keys(topicTerms).length">
-              <input type="checkbox" v-model="topicFunctionalOnly" />
-              Functional terms only <span class="text-muted">— radar labels &amp; word cloud use each topic's full list of functional terms</span>
-            </label>
-            <div class="endpoint-charts">
-              <div class="panel-card" v-for="src in endpointSources" :key="'radar-' + src.key">
-                <div class="panel-card-title">Radar · {{ src.label }}</div>
-                <topic-radar v-if="src.has" :scores="src.row" :color="tractChartColor" :term-sets="chartTermSets"></topic-radar>
-                <div v-else class="endpoint-empty chart-empty-card">No {{ src.key }}-only decoding</div>
+            <!-- Radar + word cloud per decoding -->
+            <section class="subpanel" id="sec-charts" data-tour="charts" data-section="charts">
+              <h3 class="sec-head"><span>Radar &amp; word cloud</span><small>The paper's figures (Figs. 3–4), drawn live</small></h3>
+              <div class="section-title">
+                <div class="controls" style="margin-left:0">
+                  <label class="chart-term-toggle" v-if="topicTerms && Object.keys(topicTerms).length" style="margin:0">
+                    <input type="checkbox" v-model="topicFunctionalOnly" /> Functional terms only
+                  </label>
+                </div>
               </div>
-              <div class="panel-card" v-for="src in endpointSources" :key="'cloud-' + src.key">
-                <div class="panel-card-title">Word Cloud · {{ src.label }}</div>
-                <topic-wordcloud v-if="src.has" :scores="src.row" :color="tractChartColor" :term-sets="chartTermSets"></topic-wordcloud>
-                <div v-else class="endpoint-empty chart-empty-card">No {{ src.key }}-only decoding</div>
+              <p class="section-note">
+                One radar chart and word cloud per decoding (joint, RAS, LPI). Hover a bar or a word to link them; click one to open its topic (step 3).
+                Ray et al. used functional terms only. Topics are decoded with
+                <a href="https://gradec.readthedocs.io/en/latest/index.html" target="_blank" rel="noopener">gradec</a>
+                (<a href="https://direct.mit.edu/imag/article/doi/10.1162/imag_a_00081/119100/Methods-for-decoding-cortical-gradients-of" target="_blank" rel="noopener">Peraza et al., 2024</a>).
+              </p>
+              <div class="endpoint-charts">
+                <div class="panel-card" v-for="src in endpointSources" :key="'radar-' + src.key">
+                  <div class="panel-card-title">Radar<span>{{ src.label }}</span></div>
+                  <topic-radar v-if="src.has" :scores="src.row" :color="tractChartColor" :term-sets="chartTermSets" :selected-topic="selectedTopic" :hover-topic="hoverTopic" @select-topic="openTopic" @hover-topic="hoverTopic = $event"></topic-radar>
+                  <div v-else class="endpoint-empty chart-empty-card">No {{ src.key }}-only decoding</div>
+                </div>
+                <div class="panel-card" v-for="src in endpointSources" :key="'cloud-' + src.key">
+                  <div class="panel-card-title">Word cloud<span>{{ src.label }}</span></div>
+                  <topic-wordcloud v-if="src.has" :scores="src.row" :color="tractChartColor" :term-sets="chartTermSets" :selected-topic="selectedTopic" :hover-topic="hoverTopic" @select-topic="openTopic" @hover-topic="hoverTopic = $event"></topic-wordcloud>
+                  <div v-else class="endpoint-empty chart-empty-card">No {{ src.key }}-only decoding</div>
+                </div>
               </div>
+            </section>
+
+            <!-- Network correspondence -->
+            <section class="subpanel" id="sec-networks" data-tour="networks" data-section="networks">
+              <h3 class="sec-head"><span>Networks</span><small>Overlap with canonical brain networks (Dice, spin test)</small></h3>
+              <div class="section-title">
+                <div class="controls" style="margin-left:0">
+                  <label>Atlas
+                    <select class="select" v-model="networkAtlas" style="margin-left:6px">
+                      <option v-for="a in networkAtlases" :key="a" :value="a">{{ atlasLabel(a) }}</option>
+                    </select>
+                  </label>
+                </div>
             </div>
 
             <!-- Network Correspondence: Dice overlap with canonical network atlases -->
@@ -533,71 +791,64 @@ ${SURF_PANEL_TEMPLATE}
                   </select>
                 </label>
               </div>
-              <p class="view-intro">
-                Dice overlap between this tract's combined (LPI + RAS) endpoint map and each network in the
+              <p class="section-note">
+                Dice overlap between this tract's combined (LPI + RAS) endpoint map and each network of the
                 selected atlas, from the <a href="https://www.nature.com/articles/s41467-025-58176-9" target="_blank" rel="noopener">Network Correspondence Toolbox</a>
-                (Kong et al., 2025). Bold / starred networks are spin-test significant (p &lt; 0.05).
+                (Kong et al., 2025). Bold / starred networks are spin-test significant (p &lt; 0.05); non-significant bars are faded.
               </p>
+              ${NETWORK_TOOLS_TEMPLATE}
               <div v-if="tractNetworkRows.length" class="topic-bars">
-                <div v-for="item in tractNetworkRows" :key="item.name" class="topic-bar-row">
+                <div v-for="item in tractNetworkRows" :key="item.name" class="topic-bar-row clickable"
+                     :class="{ active: focusNetwork === item.name, hot: hoverNetwork === item.name }" role="button" tabindex="0"
+                     @click="toggleNetwork(item.name)" @keydown.enter.space.prevent="toggleNetwork(item.name)"
+                     @mouseenter="hoverNetwork = item.name" @mouseleave="hoverNetwork = null">
                   <div class="topic-bar-label" :class="{ 'network-sig': item.sig }" :title="item.name">{{ item.name }}</div>
                   <div class="topic-bar-track">
-                    <div class="topic-bar-fill"
-                         :style="{ width: item.widthPct + '%', background: tractChartColor, opacity: item.sig ? 1 : 0.35 }"></div>
+                    <div class="topic-bar-fill" :style="{ width: item.widthPct + '%', background: networkColor(item.name) || tractChartColor, opacity: item.sig ? 1 : 0.35 }"></div>
                     <span class="topic-bar-val">{{ item.dice.toFixed(3) }}{{ item.sig ? ' *' : '' }}</span>
                   </div>
                 </div>
               </div>
               <div v-else class="network-corr-empty">No {{ networkAtlas }} correspondence for this tract.</div>
-            </template>
-
-            <!-- Mini strip: all topics for this tract -->
-            <div class="tract-section-title" style="margin-top:24px;">All Topics (decoding score)</div>
-            <div class="tract-strip-wrap">
-              <div class="tract-strip">
-                <div
-                  v-for="topic in topics"
-                  :key="topic"
-                  class="strip-cell"
-                  :style="{ background: cellColor(selectedTract, topic) }"
-                  @mousemove="showTip($event, selectedTract, topic)"
-                  @mouseleave="hideTip"
-                ></div>
-              </div>
-              <div class="strip-legend">
-                <span>{{ vmin.toFixed(2) }}</span>
-                <div class="legend-grad"></div>
-                <span>{{ vmax.toFixed(2) }}</span>
-                <span style="margin-left:16px;color:var(--text-muted)">r</span>
+            </section>
               </div>
             </div>
+
           </div>
         </div>
 
         <!-- ── MATRIX TAB ────────────────────────────────── -->
         <div class="tab-panel" v-else-if="tab==='matrix'">
-          <p class="view-intro">
-            Every tract's decoding score for every topic, at once. Hover a cell for the exact value,
-            or click a row to open that tract in Tract View.<br />
-            Rows without values correspond to tracts whose endpoints didn't survive the selected threshold.
-          </p>
-          <div class="matrix-legend">
-            <span>{{ vmin.toFixed(2) }}</span>
-            <div class="legend-grad"></div>
-            <span>{{ vmax.toFixed(2) }}</span>
-            <span style="margin-left:16px;color:var(--text-muted)">Decoding score (r)</span>
+          <div class="sel-head">
+            <div>
+              <p class="eyebrow">Browse · Full matrix</p>
+              <h2>All {{ tractOrder.length }} tracts × {{ topics.length }} topics</h2>
+              <p class="summary">
+                Every tract's joint decoding score for every topic. Rows follow the dendrogram, so functionally similar tracts sit together,
+                with the row's cluster color on the left. Hover a cell for the exact value; click a row to open that tract (step 2).
+                Rows without values are tracts whose endpoints didn't survive this threshold.
+              </p>
+            </div>
+            <div class="side">
+              <div class="matrix-legend">
+                <span>{{ vmin.toFixed(2) }}</span>
+                <div class="legend-grad"></div>
+                <span>{{ vmax.toFixed(2) }}</span>
+                <span style="margin-left:10px">decoding score (r)</span>
+              </div>
+            </div>
           </div>
           <div class="matrix-wrap" data-tour="matrix-table">
             <table class="matrix-table">
               <thead>
                 <tr>
-                  <th class="corner">Tract → Topic</th>
-                  <th class="col-header" v-for="t in topics" :key="t" :title="t">{{ topicLabel(t) }}</th>
+                  <th class="corner">Tract ↓ · Topic →</th>
+                  <th class="col-header" v-for="t in topics" :key="t" :title="topicLabel(t)"><span>{{ topicLabel(t) }}</span></th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="tract in matrixTractOrder" :key="tract" @click="selectTractAndSwitch(tract)" style="cursor:pointer;">
-                  <th class="row-header" :style="{ borderLeft: '3px solid ' + tractClusterColor(tract) }">{{ tract }}</th>
+                <tr v-for="tract in matrixTractOrder" :key="tract" @click="selectTractAndSwitch(tract)" style="cursor:pointer;" :title="'Open ' + tractLabel(tract)">
+                  <th class="row-header" :style="{ borderLeft: '3px solid ' + tractClusterColor(tract) }">{{ tractLabel(tract) }}</th>
                   <td
                     class="cell"
                     v-for="topic in topics"
@@ -623,8 +874,50 @@ ${SURF_PANEL_TEMPLATE}
     >
       <strong>{{ tooltip.tract }}</strong>
       <span>{{ topicLabel(tooltip.topic) }}</span><br/>
-      <span v-if="tooltip.value !== null">r = {{ tooltip.value.toFixed(4) }}</span>
-      <span v-else style="color:#e07b7b">No data (NaN)</span>
+      <span v-if="tooltip.value !== null" class="val">r = {{ tooltip.value.toFixed(4) }}</span>
+      <span v-else style="color:var(--orange)">No data (NaN)</span>
+    </div>
+
+    <!-- ── Guided tour (spotlight walkthrough) ───────────────── -->
+    <div class="tour" v-if="tour.active" role="dialog" aria-modal="true" aria-label="Guided tour">
+      <svg class="tour-mask" aria-hidden="true">
+        <defs>
+          <mask id="tourMask">
+            <rect width="100%" height="100%" fill="#fff" />
+            <rect v-if="tour.rect" :x="tour.rect.x - 6" :y="tour.rect.y - 6" :width="tour.rect.w + 12" :height="tour.rect.h + 12" rx="10" fill="#000" />
+          </mask>
+        </defs>
+        <rect width="100%" height="100%" class="tour-shade" mask="url(#tourMask)" @click="endTour" />
+      </svg>
+      <div class="tour-ring" v-if="tour.rect" :style="{ left: (tour.rect.x - 6) + 'px', top: (tour.rect.y - 6) + 'px', width: (tour.rect.w + 12) + 'px', height: (tour.rect.h + 12) + 'px' }"></div>
+      <div class="tour-card" :class="tour.place" :style="tour.cardStyle" ref="tourCard">
+        <div class="tour-progress"><span>{{ tour.step + 1 }} / {{ tourSteps.length }}</span><button class="tour-skip" @click="endTour">Skip tour</button></div>
+        <h3>{{ tourSteps[tour.step].title }}</h3>
+        <p v-html="tourSteps[tour.step].body"></p>
+        <div class="tour-actions">
+          <button class="btn small" @click="tourGo(-1)" :disabled="tour.step === 0">Back</button>
+          <button class="btn primary small" @click="tourGo(1)">{{ tour.step === tourSteps.length - 1 ? 'Finish' : 'Next' }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Help dialog ─────────────────────────────────────── -->
+    <div class="modal-backdrop" v-if="helpOpen" @click.self="helpOpen = false">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+        <h2 id="helpTitle">How to use the explorer</h2>
+        <p class="lede">The explorer is a drill-down in three steps. The bar under the header always shows where you are.</p>
+        <h4>Step 1 · Cluster</h4>
+        <p><b>Tracts are grouped by how similar their functional profiles are</b> (complete-linkage clustering on 1 − Pearson r across the 104 topics, cut at the distance shown under the dendrogram). Pick a cluster in the left panel or click a branch of the dendrogram. You'll see the union of its members' endpoint maps, its top topics, radar chart, word cloud and network overlap.</p>
+        <h4>Step 2 · Tract</h4>
+        <p><b>Open any tract</b> — from the cluster's tag list, the tree on the left, the search box, or a row of the full matrix. The tract view shows its endpoint map in both orientation conventions (RAS and LPI), and the decoding of the joint map next to each endpoint decoded on its own.</p>
+        <h4>Step 3 · Topic</h4>
+        <p><b>Click any topic bar</b> to open that topic's full 40-term LDA list, with each term's weight and type (functional, anatomical, clinical, non-specific). The “Functional terms only” switch matches the paper's figures and also drives the radar and word-cloud labels.</p>
+        <h4>Threshold</h4>
+        <p>The dropdown in the header switches the endpoint-density threshold used to define tract endpoints (0.05–0.20). Each threshold has its own decoding and its own clustering solution; the number of clusters is shown in the label.</p>
+        <h4>3D maps</h4>
+        <p>Drag to rotate, scroll to zoom. The color scale is the endpoint density on the fsaverage surface (max across member tracts for a cluster).</p>
+        <div class="close-row" style="gap:10px"><button class="btn" @click="helpOpen = false; startTour()">Take the guided tour</button><button class="btn primary" @click="helpOpen = false">Got it</button></div>
+      </div>
     </div>
 
     <!-- ── Intro tour ──────────────────────────────────────── -->
@@ -639,7 +932,6 @@ ${SURF_PANEL_TEMPLATE}
           <div class="tour-popover-actions">
             <button class="tour-btn tour-btn-ghost" @click="prevTourStep" v-if="tourIndex > 0">Back</button>
             <button class="tour-btn tour-btn-primary" @click="nextTourStep">{{ tourIndex === tourSteps.length - 1 ? 'Done' : 'Next' }}</button>
-          </div>
         </div>
       </div>
     </div>
@@ -650,7 +942,6 @@ ${SURF_PANEL_TEMPLATE}
   data() {
     return {
       tab: 'cluster',
-      sideMode: 'clusters',     // 'clusters' | 'tracts'
       loading: true,
       selectedThreshold: this.config.defaultThreshold || Object.keys(this.config.thresholds)[0],
       selectedCluster: null,
@@ -668,21 +959,36 @@ ${SURF_PANEL_TEMPLATE}
       selectedTopic: null,      // raw topic column name shown in the topic detail panel
       topicFunctionalOnly: true,    // on by default: matches the notebook/gradec figures (functional terms)
       clusterMatrix: {},
-      clusterQuality: [],
-      analysisSummary: [],
       matrixRAS: {},            // { tract: { topic: r } } — RAS endpoint decoded on its own (matrix_RAS.csv)
       matrixLPI: {},            // same for the LPI endpoint (matrix_LPI.csv)        // { clusterId: { topicName: value } } — from cluster-matrix.csv, optional
       vmin: -0.5,
       vmax: 0.5,
       tooltip: { visible: false, x: 0, y: 0, tract: '', topic: '', value: null },
-      // 3D cortical endpoint map (Tract View) — 'idle' | 'loading' | 'ready' | 'empty'
-      surfStatus: { RAS: 'idle', LPI: 'idle' },
-      surfMax: { RAS: 0, LPI: 0 },
+      // Brain workspace state. mode: 'both' | 'RAS' | 'LPI' | 'bytract'; status: 'idle' | 'loading' | 'ready' | 'empty' | 'nomembers' | 'nowebgl'
+      brain: { mode: 'both', hemi: 'both', view: 'dorsal', status: 'idle', max: 0, atlas: false, overlay: true, atlasOpacity: 0.8 },
+      brainTints: [],            // [{ tract, color }] legend for "by tract" mode
+      hoverTract: null,
+      // Network atlas painted on the cortex (assets/atlases/<code>.json, from scripts/export_network_atlases.py)
+      atlasInfo: null,           // { code, title, names, colors } of the atlas currently painted
+      hoverNetwork: null,        // network name under the pointer (legend / Networks rows)
+      focusNetwork: null,        // network isolated on the brain (click)
       // Network Correspondence Toolbox (Kong et al. 2025) results, from
       // network-correspondence.csv: { "tract|leftArc": { TY7: [{name,dice,p_value}], TY17: [...] } }
       networkCorrespondence: {},
       networkAtlases: [],        // atlas codes present in this threshold's CSV, e.g. ['TY7','TY17']
       networkAtlas: null,        // currently selected atlas code
+      // ── UI state for the guided workflow ──
+      sideMode: 'clusters',
+      sidebarOpen: false,        // mobile drawer
+      helpOpen: false,           // "How to use" dialog
+      hoverTopic: null,          // topic under the pointer in a bar / radar / word cloud (links the three)
+      subTab: 'map',             // 'map' | 'topics' | 'charts' | 'networks'
+      topicsMode: 'chart',       // Topics panel: 'chart' (profile beeswarm) | 'list' (ranked bars)
+      // Guided tour: spotlight + card over the live page (see tourSteps / startTour)
+      tour: { active: false, step: 0, rect: null, place: 'below', cardStyle: {} },
+      dendroOpen: true,          // dendrogram shown in the sidebar
+      openClusters: {},          // { clusterId: true } — expanded rows in the sidebar tree
+      guideDismissed: readPref('wmc.guideDismissed') === '1',
 
       // Intro tour (guided walkthrough) — see startTour()/buildTourSteps().
       tourActive: false,
@@ -775,6 +1081,26 @@ ${SURF_PANEL_TEMPLATE}
     clusterLegendCss() {
       return rampGradientCss(clusterRamp(this.activeCluster ? this.activeCluster.color : null));
     },
+    glowLegendCss() {
+      const hex = this.tab === 'cluster' && this.activeCluster ? this.activeCluster.color : '#ffb454';
+      return 'linear-gradient(to right, ' + hex + ', #ffffff)';
+    },
+    brainLegendCss() {
+      return this.tab === 'cluster' ? this.clusterLegendCss : 'linear-gradient(to right, #000, #c00, #fc0, #fff)';
+    },
+    // Camera presets; the two medial views hide the other hemisphere.
+    brainViews() {
+      return [
+        { id: 'dorsal',        label: 'Top',           cam: 'dorsal',        hemi: 'both' },
+        { id: 'ventral',       label: 'Bottom',        cam: 'ventral',       hemi: 'both' },
+        { id: 'anterior',      label: 'Front',         cam: 'anterior',      hemi: 'both' },
+        { id: 'posterior',     label: 'Back',          cam: 'posterior',     hemi: 'both' },
+        { id: 'lateral-left',  label: 'Left, lateral', cam: 'lateral-left',  hemi: 'both' },
+        { id: 'lateral-right', label: 'Right, lateral',cam: 'lateral-right', hemi: 'both' },
+        { id: 'medial-left',   label: 'Left, medial',  cam: 'lateral-right', hemi: 'lh' },
+        { id: 'medial-right',  label: 'Right, medial', cam: 'lateral-left',  hemi: 'rh' }
+      ];
+    },
     // Tracts whose endpoint maps the 3D panel should show right now.
     surfTracts() {
       if (this.tab === 'tract') return this.selectedTract ? [this.selectedTract] : [];
@@ -787,9 +1113,111 @@ ${SURF_PANEL_TEMPLATE}
     },
 
     filteredTracts() {
-      const q = this.tractSearch.toLowerCase();
+      const q = this.tractSearch.trim().toLowerCase();
       if (!q) return this.tractOrder.slice().sort();
-      return this.tractOrder.filter(t => t.toLowerCase().includes(q)).sort();
+      // Match the raw id ("leftArc"), the readable label ("L Arcuate") and
+      // the side word ("left"), so "arcuate", "arc" and "left" all work.
+      return this.tractOrder.filter(t => {
+        const { side } = tractParts(t);
+        const hay = `${t} ${tractLabel(t)} ${side || ''}`.toLowerCase();
+        return q.split(/\s+/).every(w => hay.includes(w));
+      }).sort();
+    },
+
+    // Sidebar tree: one group per cluster (in cluster order) holding its
+    // tracts, plus a "Not clustered" group for tracts without decoding
+    // scores at this threshold. While searching, every match is listed flat.
+    sidebarGroups() {
+      if (this.tractSearch.trim()) {
+        return this.filteredTracts.length ? [{ id: 'all', label: 'Matches', color: null, tracts: this.filteredTracts }] : [];
+      }
+      if (!this.clustersEnabled || !this.clusters.length) {
+        return [{ id: 'all', label: 'Tracts', color: null, tracts: this.tractOrder.slice().sort() }];
+      }
+      const groups = this.clusters.map(c => ({ id: c.id, label: `Cluster ${c.id}`, color: c.color, tracts: c.tracts.slice().sort() }));
+      const rest = this.tractOrder.filter(t => !this.clusterAssignments[t]).sort();
+      if (rest.length) groups.push({ id: 'none', label: 'Not clustered', color: '#555', tracts: rest });
+      return groups;
+    },
+
+    // Guided tour. Each step names a [data-tour] anchor and may prepare the
+    // page (switch tab / sub-tab, open a topic) before the spotlight lands.
+    tourSteps() {
+      const firstTopic = () => {
+        const list = this.tab === 'cluster' ? this.clusterTopTopics : (this.endpointSources[0] ? this.endpointSources[0].top : []);
+        return list.length ? list[0].topic : null;
+      };
+      return [
+        { target: 'tour-btn', title: 'Welcome to the explorer',
+          body: 'This two-minute tour walks through every control and panel. You can restart it any time from this <b>Tour</b> button, or press <b>Esc</b> to leave.' },
+        { target: 'threshold', title: 'Endpoint threshold',
+          body: 'Tract endpoints are defined by an endpoint-density cutoff. Each threshold has its own decoding and its own clustering solution; the label shows how many clusters it yields. The paper\'s default is 0.15.' },
+        { target: 'stepper', title: 'Your path: Cluster › Tract › Topic',
+          body: 'The explorer is a drill-down in three steps, and this bar always shows where you are. Click a step to go back to it. <b>Full matrix</b> on the right is the alternative: browse every tract and topic at once.' },
+        { target: 'sidebar', title: 'The cluster tree', prep: () => { this.sidebarOpen = true; },
+          body: 'Every tract as a leaf of the dendrogram, grouped by how similar their decoding profiles are. Click a coloured branch to view that cluster, a tract name to open it, the numbered chips to jump between clusters, or search by name (Enter opens the first match).' },
+        { target: 'selection', title: 'What is selected', prep: () => { this.sidebarOpen = false; if (this.tab === 'matrix') this.showClusterView(); },
+          body: 'The header names the selected cluster or tract, how it was defined, and its members. The tags are shortcuts: click a tract to go to step 2, or jump back to its cluster.' },
+        { target: 'subtabs', title: 'One panel at a time',
+          body: 'The brain stays on the left; everything else is stacked on the right. This bar jumps to a section and shows where you are: the <b>overview</b> (top topics, best networks), all <b>topics</b> decoded from the map, the <b>radar & word cloud</b> figures from the paper, and <b>network</b> overlap.' },
+        { target: 'map', title: 'Cortical endpoint map', prep: () => { this.goToSection('map'); },
+          body: 'Where the tract\'s streamlines end on the cortex, as endpoint density on the fsaverage surface. For a cluster it is the union of its members\' maps. <b>Show</b> picks what is drawn (combined endpoints, one endpoint, a cluster coloured by tract) and <b>View</b> jumps to a camera angle; the Networks section can paint its atlas underneath. <b>Drag</b> to rotate, <b>scroll</b> to zoom.' },
+        { target: 'glance', title: 'At a glance',
+          body: 'Beside the map: the five strongest cognitive topics and the three best-matching brain networks for this selection, and a plain-language note on what the selection is. Click a topic here to open it directly.' },
+        { target: 'topics', title: 'Decoded cognitive topics', prep: () => { this.goToSection('topics'); },
+          body: 'All 104 NeuroQuery topics at once: each dot is one topic, placed by its correlation (Pearson r) with the endpoint map. Orange is positive, blue negative, and the strongest are labelled. In the tract view the joint map and the two endpoints are lanes on one shared axis.' },
+        { target: 'topic-panel', title: 'Step 3: inside a topic', prep: () => { const t = firstTopic(); if (t) this.selectedTopic = t; this.goToSection('topics'); },
+          body: 'Clicking a topic opens its full 40-term list with LDA weights and term type: <b>F</b>unctional, <b>A</b>natomical, <b>C</b>linical, <b>N</b>on-specific. The <b>Functional terms only</b> switch matches the paper\'s figures.' },
+        { target: 'charts', title: 'Radar chart & word cloud', prep: () => { this.goToSection('charts'); },
+          body: 'The paper\'s figures, drawn live. Brighter means a stronger topic. Hover a bar or a word to see what it belongs to; click one to open that topic.' },
+        { target: 'networks', title: 'Network correspondence', prep: () => { this.goToSection('networks'); },
+          body: 'Dice overlap between the endpoint map and each network of a reference atlas (Yeo, Gordon, Schaefer, Glasser, Shen). Bold / starred networks survive a spin test (p < 0.05). <b>Show networks on the brain</b> paints the atlas on the cortex with the endpoint map on top; hover a row to find that network, click to isolate it.' },
+        { target: 'matrix-btn', title: 'Or browse everything', prep: () => { this.goToSection('map'); },
+          body: 'The <b>full matrix</b> shows all tracts against all topics as one heatmap, ordered like the dendrogram. Click any row to open that tract. That\'s the tour: the <b>?</b> button has a written version.' }
+      ];
+    },
+
+    // Sub-tabs under the selection header; one panel at a time.
+    subTabs() {
+      const hasSurf = !!(this.surfBase && this.surfMeshBase);
+      const hasScores = this.tab === 'cluster' ? !!this.clusterMatrix[this.selectedCluster] : !!this.matrix[this.selectedTract];
+      return [
+        { id: 'map',      label: 'Overview',           hint: 'Top topics, best networks, what this is',      available: true },
+        { id: 'topics',   label: 'Topics',             hint: 'Cognitive topics decoded from the map',        available: hasScores },
+        { id: 'charts',   label: 'Radar & word cloud', hint: "The paper's figures (Figs. 3–4), live",        available: hasScores },
+        { id: 'networks', label: 'Networks',           hint: 'Overlap with canonical brain networks',        available: this.networkAtlases.length > 0 }
+      ];
+    },
+    // Readable label for every tract (for the dendrogram leaves).
+    tractLabels() {
+      const out = {};
+      this.tractOrder.forEach(t => { out[t] = tractLabel(t); });
+      return out;
+    },
+    matchCount() { return this.filteredTracts.length; },
+
+    // Lanes for the topic profile chart: one row per decoding.
+    profileLanes() {
+      if (this.tab === 'cluster') {
+        return [{ key: 'cluster', label: 'Cluster ' + this.selectedCluster + ' · combined map', row: this.clusterMatrix[this.selectedCluster] || null }];
+      }
+      return this.endpointSources.map(src => ({ key: src.key, label: src.label, row: src.row || null }));
+    },
+    // "At a glance" strip
+    glanceTopics() {
+      const src = this.tab === 'cluster' ? this.clusterTopTopics : (this.endpointSources[0] ? this.endpointSources[0].top : []);
+      return src.slice(0, 5);
+    },
+    glanceMax() { return Math.max(1e-6, ...this.glanceTopics.map(x => Math.abs(x.value))); },
+    glanceNetworks() { return (this.tab === 'cluster' ? this.clusterNetworkRows : this.tractNetworkRows).slice(0, 3); },
+    glanceColor() { return this.tab === 'cluster' ? (this.activeCluster ? this.activeCluster.color : '#3fd2ff') : this.tractChartColor; },
+
+    // Other tracts in the selected tract's cluster (for the "see also" tags).
+    siblingTracts() {
+      const cid = this.clusterAssignments[this.selectedTract];
+      if (!cid) return [];
+      const c = this.clusters.find(x => x.id === cid);
+      return c ? c.tracts.filter(t => t !== this.selectedTract) : [];
     },
 
     // Full Matrix row order: same order the dendrogram's leaves are drawn in
@@ -847,13 +1275,12 @@ ${SURF_PANEL_TEMPLATE}
     // Deep link from the landing page's "Cluster View" / "Tract View" /
     // "Full Matrix" cards (explorer.html#cluster|tract|matrix).
     const hashTab = (location.hash || '').replace('#', '');
-    this._hashDeepLink = !!hashTab;   // skip the auto intro tour if arriving via a landing-page deep link
+    if (hashTab === 'tract') { this.tab = 'tract'; }
     if (hashTab === 'tract') { this.tab = 'tract'; this.sideMode = 'tracts'; }
     else if (hashTab === 'matrix') { this.tab = 'matrix'; }
-    else if (hashTab === 'cluster') { this.tab = 'cluster'; this.sideMode = 'clusters'; }
+    else if (hashTab === 'cluster') { this.tab = 'cluster'; }
 
     if (!this.clustersEnabled) {
-      this.sideMode = 'tracts';
       this.tab = 'tract';
     }
     this.loadData();
@@ -862,9 +1289,18 @@ ${SURF_PANEL_TEMPLATE}
 
   beforeDestroy() {
     this.disposeSurfScenes();
+    if (this._tourKey) { window.removeEventListener('keydown', this._tourKey); window.removeEventListener('resize', this._tourResize); }
   },
 
+  updated() { if (!this._secObsQueued) { this._secObsQueued = true; this.$nextTick(() => { this._secObsQueued = false; this.observeSections(); }); } },
   watch: {
+    networkAtlas() { if (this.brain.atlas) { this.focusNetwork = null; this.queueSurfRefresh(); } },
+    hoverNetwork(v) {
+      if (!this.brain.atlas) return;
+      clearTimeout(this._hoverNetTimer);
+      // Hover previews the network by temporarily focusing it; a click pins it.
+      this._hoverNetTimer = setTimeout(() => { this._hoverFocus = v; this.queueSurfRefresh(); }, 80);
+    },
     // Any change to what's being viewed refreshes the 3D endpoint map.
     // queueSurfRefresh() dedups watchers that fire in the same tick
     // (e.g. selectTract() sets selectedTract and tab together).
@@ -888,19 +1324,6 @@ ${SURF_PANEL_TEMPLATE}
         this.disposeSurfScenes();
       }
     },
-    // First-visit auto-tour: fires once, right after the first successful
-    // data load, skipped for a landing-page deep link (that visitor already
-    // chose a specific view) or if the tour's been seen before (localStorage).
-    loading(newVal) {
-      if (newVal || this._tourAutoChecked) return;
-      this._tourAutoChecked = true;
-      if (this._hashDeepLink) return;
-      let seen = false;
-      try { seen = !!localStorage.getItem('wmc_tour_seen'); } catch (e) { /* storage unavailable */ }
-      if (seen) return;
-      try { localStorage.setItem('wmc_tour_seen', '1'); } catch (e) { /* storage unavailable */ }
-      this.$nextTick(() => setTimeout(() => this.startTour(), 700));
-    }
   },
 
   methods: {
@@ -921,9 +1344,9 @@ ${SURF_PANEL_TEMPLATE}
         body: "Each threshold re-clusters the 51 tracts into a different number of functional groups, with its own decoding. Start here."
       });
       steps.push({
-        target: 'view-tabs',
-        title: 'Three ways to explore',
-        body: 'Cluster View groups tracts by similarity, Tract View looks at one tract at a time, and Full Matrix shows every tract × topic score at once.'
+        target: 'stepper',
+        title: 'Choose a view',
+        body: 'Explore a cluster, focus on one tract, or browse every tract × topic score in the full matrix.'
       });
       if (this.clustersEnabled) {
         steps.push({
@@ -1021,23 +1444,6 @@ ${SURF_PANEL_TEMPLATE}
       });
     },
 
-    loadClusterAnalysisSummary() {
-      this.clusterQuality = [];
-      this.analysisSummary = [];
-      const loadRows = (file, callback) => {
-        Papa.parse(`${this.baseUrl}/${file}`, {
-          download: true,
-          header: true,
-          dynamicTyping: true,
-          skipEmptyLines: true,
-          complete: (results) => callback(results.data),
-          error: () => callback([])
-        });
-      };
-      loadRows('cluster-quality.csv', (rows) => { this.clusterQuality = rows; });
-      loadRows('analysis-summary.csv', (rows) => { this.analysisSummary = rows; });
-    },
-
     // Measures the step's target element and stores its viewport rect (for
     // the spotlight) plus a clamped popover position next to it. Returns
     // false if the target isn't present/visible, so the caller can skip it.
@@ -1076,7 +1482,6 @@ ${SURF_PANEL_TEMPLATE}
       // clustering solutions.
       // If new threshold has no clustering, switch to tract mode/view
       if (!this.clustersEnabled) {
-        this.sideMode = 'tracts';
         this.tab = 'tract';
       }
       this.loadData();
@@ -1093,7 +1498,6 @@ ${SURF_PANEL_TEMPLATE}
           this.parseMatrix(results);
           this.loading = false;
           this.loadClusterMatrix();
-          this.loadClusterAnalysisSummary();
           this.loadNetworkCorrespondence();
           this.loadSideMatrices();
 
@@ -1109,13 +1513,15 @@ ${SURF_PANEL_TEMPLATE}
             // already selected, just refresh the live 3D panel for the new
             // threshold's own data; otherwise leave its normal "select a
             // tract" empty state showing instead of jumping to Cluster View.
-            if (this.selectedTract) this.queueSurfRefresh();
+            if (this.selectedTract) { this.revealTract(this.selectedTract); this.queueSurfRefresh(); }
+            else this.showTractView();
           } else if (this.tab === 'matrix') {
             // Stay on Full Matrix too — it re-renders from the new matrix.csv
             // on its own, nothing to (re)select here.
           } else if (this.clustersEnabled && this.clusters.length > 0) {
             this.selectCluster(this.clusters[0].id);
           }
+
         },
         error: (err) => {
           console.error('Failed to load matrix CSV:', err);
@@ -1204,7 +1610,9 @@ ${SURF_PANEL_TEMPLATE}
     selectCluster(id) {
       this.selectedCluster = id;
       this.tab = 'cluster';
-      this.sideMode = 'clusters';
+      this.selectedTopic = null;
+      this.$set(this.openClusters, id, true);
+      this.sidebarOpen = false;
     },
 
     selectTract(name) {
@@ -1212,31 +1620,150 @@ ${SURF_PANEL_TEMPLATE}
       this.tab = 'tract';
     },
 
-    // "Tract View" / "Cluster View" top tabs also flip the sidebar into the
-    // matching mode, so the tract/cluster list is actually visible right away
-    // instead of leaving the user on an empty-state with no list in sight.
+    // Step 2 tab: never land on an empty state — if no tract is selected yet,
+    // open the first tract of the current cluster (or the first tract overall).
     showTractView() {
+      if (!this.selectedTract) {
+        const c = this.activeCluster;
+        const first = (c && c.tracts.length) ? c.tracts.slice().sort()[0] : this.tractOrder.slice().sort()[0];
+        if (first) this.selectedTract = first;
+      }
       this.tab = 'tract';
-      this.sideMode = 'tracts';
+      this.revealTract(this.selectedTract);
     },
 
     showClusterView() {
       this.tab = 'cluster';
-      this.sideMode = 'clusters';
       this.afterClustersBuilt();   // nothing selected yet → show the first cluster
     },
 
     selectTractAndSwitch(name) {
       this.selectedTract = name;
-      this.sideMode = 'tracts';
+      this.selectedTopic = null;
       this.tab = 'tract';
+      this.revealTract(name);
+      this.sidebarOpen = false;
+    },
+
+    // Expand the sidebar group that holds this tract, and keep the cluster
+    // step in sync so the stepper reads "Cluster N › tract".
+    revealTract(name) {
+      const cid = this.clusterAssignments[name];
+      if (cid) { this.selectedCluster = cid; this.$set(this.openClusters, cid, true); }
+      else if (name) this.$set(this.openClusters, 'none', true);
     },
 
     jumpToCluster(id) {
       this.selectedCluster = id;
-      this.sideMode = 'clusters';
       this.tab = 'cluster';
+      this.$set(this.openClusters, id, true);
     },
+
+    // Sidebar tree helpers
+    isOpen(id) { return !!this.openClusters[id]; },
+    toggleOpen(id) { this.$set(this.openClusters, id, !this.openClusters[id]); },
+    onClusterRowClick(id) {
+      if (id === 'none') { this.toggleOpen(id); return; }
+      this.selectCluster(id);
+    },
+    scrollToTopic() {
+      if (this.tab === 'matrix') this.tab = this.selectedTract ? 'tract' : 'cluster';
+      this.$nextTick(() => {
+        const el = this.$el.querySelector('#sec-topics');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    },
+    // Section nav: scroll the right-hand column to a section; the active
+    // entry follows the scroll position (see observeSections).
+    goToSection(id) {
+      this.subTab = id;
+      this.$nextTick(() => {
+        const el = this.$el.querySelector('#sec-' + id);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    },
+    observeSections() {
+      if (this._secObs) this._secObs.disconnect();
+      const root = this.$el.querySelector('.tab-panel');
+      const secs = this.$el.querySelectorAll('section.subpanel[data-section]');
+      if (!root || !secs.length || typeof IntersectionObserver === 'undefined') return;
+      this._secObs = new IntersectionObserver(entries => {
+        const vis = entries.filter(e => e.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+        if (vis.length) this.subTab = vis[0].target.dataset.section;
+      }, { root, threshold: [0.25, 0.5, 0.75] });
+      secs.forEach(el => this._secObs.observe(el));
+    },
+    openFirstMatch() {
+      if (this.filteredTracts.length) { this.selectTractAndSwitch(this.filteredTracts[0]); this.tractSearch = ''; }
+    },
+    dismissGuide() { this.guideDismissed = true; writePref('wmc.guideDismissed', '1'); },
+
+    // ── Guided tour ──────────────────────────────────────────
+    startTour() {
+      this.helpOpen = false;
+      if (this.tab === 'matrix') this.showClusterView();
+      this.tourSteps = this.buildTourSteps();
+      this.tour.step = 0;
+      this.tour.active = true;
+      this.tourShow();
+      if (!this._tourKey) {
+        this._tourKey = e => {
+          if (!this.tour.active) return;
+          if (e.key === 'Escape') this.endTour();
+          else if (e.key === 'ArrowRight' || e.key === 'Enter') this.tourGo(1);
+          else if (e.key === 'ArrowLeft') this.tourGo(-1);
+        };
+        this._tourResize = () => { if (this.tour.active) this.tourPlace(); };
+        window.addEventListener('keydown', this._tourKey);
+        window.addEventListener('resize', this._tourResize);
+      }
+    },
+    endTour() {
+      this.tour.active = false;
+      this.tour.rect = null;
+      this.sidebarOpen = false;
+      writePref('wmc.tourDone', '1');
+    },
+    tourGo(dir) {
+      const next = this.tour.step + dir;
+      if (next < 0) return;
+      if (next >= this.tourSteps.length) { this.endTour(); return; }
+      this.tour.step = next;
+      this.tourShow();
+    },
+    // Prepare the page for the current step, wait for Vue to render it, then
+    // scroll the anchor into view and place the spotlight + card around it.
+    tourShow() {
+      const step = this.tourSteps[this.tour.step];
+      if (step.before) step.before();
+      this.tour.rect = null;
+      this.$nextTick(() => {
+        const el = this.$el.querySelector('[data-tour="' + step.target + '"]');
+        if (el) el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+        setTimeout(() => this.tourPlace(), 60);
+      });
+    },
+    tourPlace() {
+      const step = this.tourSteps[this.tour.step];
+      const el = this.$el.querySelector('[data-tour="' + step.target + '"]');
+      const vw = window.innerWidth, vh = window.innerHeight;
+      if (!el) { this.tour.rect = null; this.tour.place = 'center'; this.tour.cardStyle = { left: '50%', top: '50%', transform: 'translate(-50%,-50%)' }; return; }
+      const r = el.getBoundingClientRect();
+      const rect = { x: Math.max(0, r.left), y: Math.max(0, r.top), w: Math.min(r.width, vw - Math.max(0, r.left)), h: Math.min(r.height, vh - Math.max(0, r.top)) };
+      this.tour.rect = rect;
+      const CW = Math.min(380, vw - 32), CH = 230, GAP = 14;
+      let left, top, place;
+      if (rect.y + rect.h + GAP + CH < vh) { place = 'below'; top = rect.y + rect.h + GAP; left = rect.x; }
+      else if (rect.y - GAP - CH > 0)      { place = 'above'; top = rect.y - GAP - CH; left = rect.x; }
+      else if (rect.x + rect.w + GAP + CW < vw) { place = 'right'; top = Math.max(16, Math.min(rect.y, vh - CH - 16)); left = rect.x + rect.w + GAP; }
+      else { place = 'left'; top = Math.max(16, Math.min(rect.y, vh - CH - 16)); left = rect.x - GAP - CW; }
+      left = Math.max(16, Math.min(left, vw - CW - 16));
+      this.tour.place = place;
+      this.tour.cardStyle = { left: left + 'px', top: top + 'px', width: CW + 'px' };
+    },
+    tractLabel(raw) { return tractLabel(raw); },
+    tractSide(raw) { return tractSide(raw); },
+    atlasLabel(code) { return ATLAS_LABELS[code] || code; },
 
     cellColor(tract, topic) {
       const v = this.matrix[tract]?.[topic] ?? null;
@@ -1256,12 +1783,6 @@ ${SURF_PANEL_TEMPLATE}
     topicLabel(raw) { return topicLabel(raw); },
     topicId(raw) { return String(raw).split('_')[0]; },
     fmtR(v) { return v === null || v === undefined || isNaN(v) ? '—' : v.toFixed(3); },
-    formatQuality(v) {
-      const number = Number(v);
-      return v === null || v === undefined || v === '' || !Number.isFinite(number)
-        ? '—'
-        : number.toFixed(3);
-    },
     sideBarWidth(v) { return (Math.abs(v) / this.sideBarMax) * 96; },
     // matrix_RAS.csv / matrix_LPI.csv: each endpoint decoded on its own
     // (same layout as matrix.csv). Missing file → that column says "no data".
@@ -1291,6 +1812,12 @@ ${SURF_PANEL_TEMPLATE}
       });
     },
     toggleTopic(topic) { this.selectedTopic = this.selectedTopic === topic ? null : topic; },
+    // From a radar bar or word-cloud word: open the topic (step 3) and bring its term list into view.
+    openTopic(topic) {
+      if (!topic) return;
+      this.selectedTopic = topic;
+      this.scrollToTopic();
+    },
     termClassCss(c) { return 'tc-' + String(c).toLowerCase().replace(/[^a-z]/g, ''); },
     termClassShort(c) { return String(c).charAt(0).toUpperCase(); },
     loadTopicTerms() {
@@ -1354,7 +1881,8 @@ ${SURF_PANEL_TEMPLATE}
     },
 
     // Optional network-correspondence.csv: Dice overlap + spin-test p-value
-    // against canonical network atlases — computed offline by
+    // against canonical network atlases (Yeo 7/17, "TY7"/"TY17"), for every
+    // tract and cluster — computed offline by
     // scripts/compute_network_correspondence.py using the Network
     // Correspondence Toolbox (Kong et al. 2025, Nature Communications:
     // https://www.nature.com/articles/s41467-025-58176-9). Missing file
@@ -1435,40 +1963,26 @@ ${SURF_PANEL_TEMPLATE}
       };
     },
 
-    // ── 3D cortical endpoint map (Tract View) ──────────────────────
-    // Lazily creates the two SurfaceScene instances (RAS/LPI canvases)
-    // the first time they're needed; reused across tract selections.
+    // ── Brain workspace (one SurfaceScene on the shared canvas) ──────
     ensureSurfScenes() {
       if (!this.surfMeshBase || this._webglFailed) return;
       try {
-        // The Tract View (and its <canvas> elements) is torn down and rebuilt
-        // by Vue whenever the "Loading data…" panel shows (e.g. on a threshold
-        // change). A scene bound to a canvas that's no longer in the DOM would
-        // render invisibly, so drop it and rebind to the current canvas.
-        if (this._surfRAS && this._surfRAS.canvas !== this.$refs.surfCanvasRAS) { this._surfRAS.dispose(); this._surfRAS = null; }
-        if (this._surfLPI && this._surfLPI.canvas !== this.$refs.surfCanvasLPI) { this._surfLPI.dispose(); this._surfLPI = null; }
-        if (!this._surfRAS && this.$refs.surfCanvasRAS) this._surfRAS = new SurfaceScene(this.$refs.surfCanvasRAS);
-        if (!this._surfLPI && this.$refs.surfCanvasLPI) this._surfLPI = new SurfaceScene(this.$refs.surfCanvasLPI);
+        // The canvas is rebuilt by Vue when a view unmounts; rebind if so.
+        if (this._surf && this._surf.canvas !== this.$refs.surfCanvas) { this._surf.dispose(); this._surf = null; }
+        if (!this._surf && this.$refs.surfCanvas) this._surf = new SurfaceScene(this.$refs.surfCanvas);
       } catch (err) {
-        // e.g. WebGL unavailable/disabled — fail soft instead of breaking the page.
         console.error('3D surface view unavailable (WebGL failed to initialize):', err);
         this._webglFailed = true;
-        this.surfStatus.RAS = 'nowebgl';
-        this.surfStatus.LPI = 'nowebgl';
+        this.brain.status = 'nowebgl';
         this.disposeSurfScenes();
       }
     },
 
     disposeSurfScenes() {
-      // Invalidate any in-flight request too, so a slow response that resolves
-      // after disposal can't call setHemiMesh() on scenes that no longer exist.
       this._surfRequestId = (this._surfRequestId || 0) + 1;
-      if (this._surfRAS) { this._surfRAS.dispose(); this._surfRAS = null; }
-      if (this._surfLPI) { this._surfLPI.dispose(); this._surfLPI = null; }
+      if (this._surf) { this._surf.dispose(); this._surf = null; }
     },
 
-    // Collapses multiple watcher-triggered refresh requests landing in the
-    // same tick into a single actual refresh (see the `watch` block above).
     queueSurfRefresh() {
       if (this._surfRefreshQueued) return;
       this._surfRefreshQueued = true;
@@ -1478,100 +1992,174 @@ ${SURF_PANEL_TEMPLATE}
       });
     },
 
+    // Toolbar actions
+    setBrainMode(mode) { this.brain.mode = mode; this.queueSurfRefresh(); },
+    setAtlas(on) { this.brain.atlas = !!on; if (!on) { this.focusNetwork = null; if (this.brain.mode === 'none') this.brain.mode = 'both'; } this.queueSurfRefresh(); },
+    // Opacity slider: re-colour the mesh at most every ~80 ms while dragging.
+    onAtlasOpacity() {
+      clearTimeout(this._opacityTimer);
+      this._opacityTimer = setTimeout(() => this.queueSurfRefresh(), 80);
+    },
+    toggleNetwork(name) {
+      this.focusNetwork = this.focusNetwork === name ? null : name;
+      if (!this.brain.atlas) this.brain.atlas = true;
+      this.queueSurfRefresh();
+    },
+    networkColor(name) {
+      if (!this.atlasInfo || this.atlasInfo.code !== this.networkAtlas) return null;
+      const i = this.atlasInfo.names.indexOf(name);
+      return i >= 0 ? this.atlasInfo.colors[i] : null;
+    },
+    // assets/atlases/<code>.json, decoded once per atlas and kept.
+    loadAtlas(code) {
+      this._atlasCache = this._atlasCache || new Map();
+      if (!this._atlasCache.has(code)) {
+        const url = (this.config.atlasBase || 'assets/atlases') + '/' + code + '.json';
+        this._atlasCache.set(code, fetch(url).then(r => (r.ok ? r.json() : null)).then(d => {
+          if (!d) return null;
+          return { code: d.code, title: d.title, names: d.names, colors: d.colors,
+                   colors01: d.colors.map(h => { const v = parseInt(h.slice(1), 16); return [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255]; }),
+                   lh: decodeRle(d.lh, d.n), rh: decodeRle(d.rh, d.n) };
+        }).catch(() => null));
+      }
+      return this._atlasCache.get(code);
+    },
+    setBrainView(id) {
+      const v = this.brainViews.find(x => x.id === id) || this.brainViews[0];
+      this.brain.view = v.id;
+      this.brain.hemi = v.hemi;
+      if (this._surf) {
+        this._surf.setHemiVisible('lh', v.hemi !== 'rh');
+        this._surf.setHemiVisible('rh', v.hemi !== 'lh');
+        this._surf.setView(v.cam);
+      }
+    },
+    resetBrain() { if (this._surf) { this._surf.resetZoom(); this.setBrainView(this.brain.view); } },
+
+    // Cached GIFTI fetches: toggling map / hemisphere / threshold never
+    // re-downloads a file the page already parsed.
+    cachedGifti(url) {
+      this._giftiCache = this._giftiCache || new Map();
+      if (!this._giftiCache.has(url)) this._giftiCache.set(url, fetchGifti(url).catch(() => null));
+      return this._giftiCache.get(url);
+    },
+
     refreshTractSurfaces() {
       if (!this.surfBase || !this.surfMeshBase) return;
       if (this.tab === 'tract' && !this.selectedTract) return;
       if (this.tab === 'cluster' && !this.activeCluster) return;
+      // Mode sanity: 'bytract' only makes sense for a cluster, RAS/LPI only for a tract.
+      if (this.tab === 'cluster' && (this.brain.mode === 'RAS' || this.brain.mode === 'LPI')) this.brain.mode = 'both';
+      if (this.tab === 'tract' && this.brain.mode === 'bytract') this.brain.mode = 'both';
       this.ensureSurfScenes();
       if (this._webglFailed) return;
-      if (!this.surfTracts.length) {
-        // Cluster selected, but its member tracts are unknown for this threshold.
-        this.disposeSurfScenes();
-        this.surfStatus.RAS = 'nomembers';
-        this.surfStatus.LPI = 'nomembers';
-        return;
-      }
-      // Bump the request generation so an in-flight fetch from a threshold/tract
-      // we've since navigated away from can recognize itself as stale and
-      // discard its result instead of overwriting whatever loaded after it —
-      // tract selection alone isn't a reliable staleness signal here, since
-      // the same tract can stay selected across a threshold switch.
+      if (!this.surfTracts.length) { this.brain.status = 'nomembers'; return; }
       const requestId = (this._surfRequestId = (this._surfRequestId || 0) + 1);
-      if (this.tab === 'cluster') {
-        // One combined view: both orientations merged into the single canvas.
-        this.loadTractSurface('RAS', requestId, ['RAS', 'LPI']);
-      } else {
-        ['RAS', 'LPI'].forEach(orient => this.loadTractSurface(orient, requestId));
-      }
+      this.loadBrain(requestId);
     },
 
-    // Fetches lh/rh func.gii for the given orientation for every tract in
-    // surfTracts (one tract in Tract View, all member tracts in Cluster View),
-    // colours the shared fsaverage mesh with them and drops them into the
-    // scene. For a cluster, member maps are combined as the per-vertex MAX,
-    // i.e. the union of the cluster's endpoint territory. manifest.json (when
-    // present) limits requests to hemi/orientation combos that exist.
-    // `orient` picks the canvas/status slot; `sourceOrients` lists which
-    // orientations' files feed it (Cluster View merges RAS + LPI into one).
-    loadTractSurface(orient, requestId, sourceOrients = [orient]) {
-      const scene = orient === 'RAS' ? this._surfRAS : this._surfLPI;
-      const isCluster = this.tab === 'cluster';
-      const stops = isCluster ? clusterRamp(this.activeCluster.color) : null;
-      const colorFn = stops ? (t => rampRgb01(stops, 0.25 + 0.75 * t)) : null;
+    // Fetches lh/rh func.gii for every tract in surfTracts (one tract in Tract
+    // View, all member tracts in Cluster View) and the orientations the mode
+    // asks for, colours the shared fsaverage mesh and drops it into the scene.
+    // 'both'/'RAS'/'LPI': per-vertex MAX across the chosen maps (one colour ramp).
+    // 'bytract': winner-takes-all across member tracts, each its own tint.
+    loadBrain(requestId) {
+      const scene = this._surf;
       if (!scene) return;
+      const isCluster = this.tab === 'cluster';
+      const mode = this.brain.mode;
+      const orients = mode === 'RAS' || mode === 'LPI' ? [mode] : ['RAS', 'LPI'];
+      if (mode === 'none' && !this.brain.atlas) this.brain.mode = 'both';
       const tracts = this.surfTracts.slice();
-      const label = tracts.length === 1 ? tracts[0] : `cluster ${this.selectedCluster}`;
-      const surfBase = this.surfBase;
-      const meshBase = this.surfMeshBase;
+      const surfBase = this.surfBase, meshBase = this.surfMeshBase;
+      const stops = isCluster ? clusterRamp(this.activeCluster.color) : null;
+      let colorFn = stops ? (t => rampRgb01(stops, 0.25 + 0.75 * t)) : null;
+      if (this.brain.atlas) {
+        // On top of a coloured atlas the usual ramps vanish; use a bright glow
+        // from the selection's colour towards white instead.
+        const hex = isCluster ? this.activeCluster.color : '#ffb454';
+        const v = parseInt(hex.slice(1), 16), c = [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255];
+        colorFn = t => { const k = 0.3 + 0.7 * Math.min(1, t); return [c[0] + (1 - c[0]) * k, c[1] + (1 - c[1]) * k, c[2] + (1 - c[2]) * k]; };
+      }
+      const tintHex = tracts.map((t, i) => TRACT_TINTS[i % TRACT_TINTS.length]);
+      const tint01 = tintHex.map(h => { const n = parseInt(h.slice(1), 16); return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]; });
 
-      this.surfStatus[orient] = 'loading';
-      scene.clearHemi('lh');
-      scene.clearHemi('rh');
+      this.brain.status = 'loading';
+      this.brainTints = mode === 'bytract' ? tracts.map((tract, i) => ({ tract, color: tintHex[i] })) : [];
+      const wantAtlas = this.brain.atlas && this.networkAtlas;
+      const atlasP = wantAtlas ? this.loadAtlas(this.networkAtlas) : Promise.resolve(null);
+      const showOverlay = this.brain.mode !== 'none';
 
-      loadSurfManifest(surfBase).then(manifest => {
+      Promise.all([atlasP, loadSurfManifest(surfBase)]).then(([atlas, manifest]) => {
+        if (requestId !== this._surfRequestId) return [];
+        this.atlasInfo = atlas ? { code: atlas.code, title: atlas.title, names: atlas.names, colors: atlas.colors } : null;
+        this._atlas = atlas;
         return Promise.all(['lh', 'rh'].map(hemi => {
-          const wanted = [];   // [tract, orientation] pairs that exist
-          tracts.forEach(t => sourceOrients.forEach(o => {
-            if (!manifest || (manifest[t] && manifest[t][hemi] && manifest[t][hemi].includes(o))) wanted.push([t, o]);
-          }));
-          if (!wanted.length) return null;
-          return Promise.all([
-            loadHemiMesh(meshBase, hemi),
-            Promise.all(wanted.map(([t, o]) =>
-              fetchGifti(`${surfBase}/${hemi}.${t}.${o}.func.gii`).catch(() => null)
-            ))
-          ]).then(([mesh, perTract]) => {
-            let overlay = null;
-            perTract.forEach(arrays => {
-              if (!arrays || !arrays.length) return;
-              const d = (arrays.find(a => a.dim0 === mesh.nVerts) || arrays[0]).values;
-              if (!overlay) { overlay = Float32Array.from(d); return; }
-              for (let i = 0; i < overlay.length; i++) if (d[i] > overlay[i]) overlay[i] = d[i];
-            });
-            return overlay ? { hemi, mesh, overlay } : null;
-          });
+        const wanted = [];   // [tractIndex, orientation]
+        tracts.forEach((t, ti) => orients.forEach(o => {
+          if (!manifest || (manifest[t] && manifest[t][hemi] && manifest[t][hemi].includes(o))) wanted.push([ti, o]);
         }));
-      }).then(results => {
-        // A newer refresh (tract OR threshold change) has started since this
-        // request went out — drop this result rather than risk a slow old
-        // response overwriting what the newer request already loaded.
-        if (requestId !== this._surfRequestId) return;
+        if (!wanted.length) return null;
+        return Promise.all([
+          loadHemiMesh(meshBase, hemi),
+          Promise.all(wanted.map(([ti, o]) => this.cachedGifti(`${surfBase}/${hemi}.${tracts[ti]}.${o}.func.gii`)))
+        ]).then(([mesh, arrays]) => {
+          const perTract = tracts.map(() => null);
+          let any = false;
+          arrays.forEach((arr, k) => {
+            if (!arr || !arr.length) return;
+            const d = (arr.find(a => a.dim0 === mesh.nVerts) || arr[0]).values;
+            const ti = wanted[k][0];
+            if (!perTract[ti]) { perTract[ti] = Float32Array.from(d); }
+            else { const ov = perTract[ti]; for (let i = 0; i < ov.length; i++) if (d[i] > ov[i]) ov[i] = d[i]; }
+            any = true;
+          });
+          return any ? { hemi, mesh, perTract } : null;
+        });
+      })); }).then(results => {
+        if (requestId !== this._surfRequestId) return;   // a newer request superseded this one
+        const atlas = this._atlas;
+        const focusName = this.focusNetwork || this._hoverFocus;
+        const focusIdx = atlas && focusName ? atlas.names.indexOf(focusName) + 1 : 0;
+        const baseFor = (hemi, mesh) => atlas ? buildAtlasBase(mesh, atlas[hemi], atlas.colors01, focusIdx || null, null, this.brain.atlasOpacity) : null;
         const found = results.filter(Boolean);
-        if (!found.length) { this.surfStatus[orient] = 'empty'; return; }
-
+        if (!found.length) { scene.clearHemi('lh'); scene.clearHemi('rh'); this.brain.status = 'empty'; return; }
         let max = 0;
+        found.forEach(f => f.perTract.forEach(ov => { if (ov) for (let i = 0; i < ov.length; i++) if (ov[i] > max) max = ov[i]; }));
+        ['lh', 'rh'].forEach(h => { if (!found.some(f => f.hemi === h)) scene.clearHemi(h); });
         found.forEach(f => {
-          for (let i = 0; i < f.overlay.length; i++) if (f.overlay[i] > max) max = f.overlay[i];
+          const base = baseFor(f.hemi, f.mesh);
+          if (!showOverlay) {
+            scene.setHemiMesh(f.hemi, buildColoredGeometry(f.mesh, null, 1, colorFn, base));
+          } else if (mode === 'bytract') {
+            scene.setHemiMesh(f.hemi, buildTintedGeometry(f.mesh, f.perTract, tint01, base));
+          } else {
+            let overlay = null;
+            f.perTract.forEach(ov => {
+              if (!ov) return;
+              if (!overlay) { overlay = Float32Array.from(ov); return; }
+              for (let i = 0; i < overlay.length; i++) if (ov[i] > overlay[i]) overlay[i] = ov[i];
+            });
+            scene.setHemiMesh(f.hemi, buildColoredGeometry(f.mesh, overlay, max, colorFn, base));
+          }
         });
-        found.forEach(f => {
-          scene.setHemiMesh(f.hemi, buildColoredGeometry(f.mesh, f.overlay, max, colorFn));
-        });
-        scene.setDefaultView(found.map(f => f.hemi));
-        this.surfMax[orient] = max;
-        this.surfStatus[orient] = 'ready';
+        // If the chosen hemisphere has no map for this selection, fall back to both.
+        const haveHemis = found.map(f => f.hemi);
+        if (this.brain.hemi !== 'both' && !haveHemis.includes(this.brain.hemi)) this.setBrainView('dorsal');
+        scene.setHemiVisible('lh', this.brain.hemi !== 'rh');
+        scene.setHemiVisible('rh', this.brain.hemi !== 'lh');
+        // First load of a selection: pick a sensible camera; later reloads keep the user's view.
+        if (this._brainKey !== this.tab + '|' + tracts.join(',')) {
+          this._brainKey = this.tab + '|' + tracts.join(',');
+          const hemis = found.map(f => f.hemi);
+          const v = hemis.length === 2 ? 'dorsal' : hemis[0] === 'lh' ? 'lateral-left' : 'lateral-right';
+          scene.resetZoom(); this.setBrainView(v);
+        }
+        this.brain.max = max;
+        this.brain.status = 'ready';
       }).catch(err => {
-        console.error(`Failed to load ${orient} surface for ${label}:`, err);
-        if (requestId === this._surfRequestId) this.surfStatus[orient] = 'empty';
+        console.error('Failed to load endpoint map:', err);
+        if (requestId === this._surfRequestId) this.brain.status = 'empty';
       });
     }
   }

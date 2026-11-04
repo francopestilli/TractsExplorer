@@ -25,6 +25,8 @@ THRESHOLDS = {
 }
 FIXED_43_TARGET = ("0.15", "thr-15_5clusters", "user43")
 MODES = ("LPI", "RAS", "joint")
+CLUSTER_MODE = "joint"
+FULL_COHORT_SIZE = 61
 SUMMARY_FIELDS = (
     "threshold",
     "cohort",
@@ -156,19 +158,15 @@ def copy_mode_results(
     destination_dir: Path,
     mode: str,
 ) -> None:
+    matrix_name = "matrix.csv" if mode == "joint" else f"matrix_{mode}.csv"
+    shutil.copyfile(source_dir / f"tract_decoding_{mode}.csv", destination_dir / matrix_name)
+    if mode != CLUSTER_MODE:
+        return
+
     copies = {
-        f"tract_decoding_{mode}.csv": (
-            "matrix.csv" if mode == "joint" else f"matrix_{mode}.csv"
-        ),
-        f"cluster_assignments_{mode}_cut1-32.csv": (
-            f"cluster-assignments_{mode}.csv"
-        ),
-        f"cluster_decoding_{mode}_cut1-32.csv": (
-            "cluster-matrix.csv"
-            if mode == "joint"
-            else f"cluster-matrix_{mode}.csv"
-        ),
-        f"dendrogram_{mode}_cut1-32.png": f"dendrogram_{mode}.png",
+        f"cluster_assignments_{mode}_cut1-32.csv": "cluster-assignments_joint.csv",
+        f"cluster_decoding_{mode}_cut1-32.csv": "cluster-matrix.csv",
+        f"dendrogram_{mode}_cut1-32.png": "dendrogram_joint.png",
     }
     for source_name, destination_name in copies.items():
         source = source_dir / source_name
@@ -184,7 +182,7 @@ def publish_threshold(
     surface_folder: str | None = None,
 ) -> tuple[int, int]:
     members = get_cohort_members(threshold, cohort)
-    expected_count = 43 if cohort == "user43" else 45
+    expected_count = 43 if cohort == "user43" else FULL_COHORT_SIZE
     if len(members) != expected_count:
         raise ValueError(
             f"{threshold}/{cohort} has {len(members)} cohort members; "
@@ -215,29 +213,29 @@ def publish_threshold(
     _, all_summary_rows = read_csv(
         ANALYSIS_ROOT / "analysis_summary.csv"
     )
-    for mode in MODES:
-        source_quality_fields, source_quality_rows = read_csv(
-            source_dir / f"cluster_quality_{mode}_n2-n8.csv"
+    source_quality_fields, source_quality_rows = read_csv(
+        source_dir / f"cluster_quality_{CLUSTER_MODE}_n2-n8.csv"
+    )
+    quality_fields = source_quality_fields
+    quality_rows.extend(
+        {**row, "quality_file": "cluster-quality.csv"}
+        for row in source_quality_rows
+    )
+    summary_row = next(
+        (
+            row
+            for row in all_summary_rows
+            if float(row["threshold"]) == float(threshold)
+            and row["cohort"] == cohort
+            and row["mode"] == CLUSTER_MODE
+        ),
+        None,
+    )
+    if summary_row is None:
+        raise ValueError(
+            f"Missing joint clustering summary for {threshold}/{cohort}."
         )
-        if not quality_fields:
-            quality_fields = source_quality_fields
-        quality_rows.extend(
-            {**row, "quality_file": "cluster-quality.csv"}
-            for row in source_quality_rows
-        )
-        summary_row = next(
-            (
-                row
-                for row in all_summary_rows
-                if float(row["threshold"]) == float(threshold)
-                and row["cohort"] == cohort
-                and row["mode"] == mode
-            ),
-            None,
-        )
-        if summary_row is None:
-            raise ValueError(f"Missing summary row for {threshold}/{cohort}/{mode}.")
-        summary_rows.append({field: summary_row[field] for field in SUMMARY_FIELDS})
+    summary_rows.append({field: summary_row[field] for field in SUMMARY_FIELDS})
 
     write_csv(destination_dir / "cluster-quality.csv", quality_fields, quality_rows)
     write_csv(
@@ -246,8 +244,18 @@ def publish_threshold(
         summary_rows,
     )
 
-    joint_dendrogram = destination_dir / "dendrogram_joint.png"
-    shutil.copyfile(joint_dendrogram, destination_dir / "dendro.png")
+    for mode in ("LPI", "RAS"):
+        for filename in (
+            f"cluster-assignments_{mode}.csv",
+            f"cluster-matrix_{mode}.csv",
+            f"dendrogram_{mode}.png",
+        ):
+            (destination_dir / filename).unlink(missing_ok=True)
+
+    shutil.copyfile(
+        destination_dir / "dendrogram_joint.png",
+        destination_dir / "dendro.png",
+    )
 
     nct_path = destination_dir / "network-correspondence.csv"
     nct_fields, nct_rows = read_csv(nct_path)
@@ -288,10 +296,9 @@ def main() -> None:
         )
 
     print(
-        "Published 3 decoding modes, cluster assignments/decodings, "
-        "dendrograms, and cluster-quality metrics. Cluster-level NCT rows "
-        "were omitted because they were calculated for the previous cluster "
-        "partition; tract-level rows were retained for the unchanged maps."
+        "Published 3 decoding modes and joint-only clustering results. "
+        "Network-correspondence rows need recomputation for the updated tract "
+        "cohorts and joint cluster partitions."
     )
 
 
