@@ -612,15 +612,9 @@ Vue.component('wmc-viewer', {
 
             <!-- Network Correspondence: Dice overlap with canonical network atlases -->
             <template v-if="networkAtlases.length">
-              <div class="tract-section-title" data-tour="network-corr" style="display:flex;align-items:center;">
-                Network Correspondence
-                <label class="network-atlas-label">
-                  Atlas
-                  <select class="network-atlas-select" v-model="networkAtlas">
-                    <option v-for="a in networkAtlases" :key="a" :value="a">{{ a }}</option>
-                  </select>
-                </label>
-              </div>
+              <div class="tract-section-title" data-tour="network-corr">
+  Network Correspondence
+</div>
               <p class="section-note">
                 Dice overlap between this cluster's combined endpoint map and each network of the selected
                 atlas, from the <a href="https://www.nature.com/articles/s41467-025-58176-9" target="_blank" rel="noopener">Network Correspondence Toolbox</a>
@@ -782,15 +776,9 @@ ${SURF_PANEL_TEMPLATE}
 
             <!-- Network Correspondence: Dice overlap with canonical network atlases -->
             <template v-if="networkAtlases.length">
-              <div class="tract-section-title" data-tour="network-corr" style="display:flex;align-items:center;">
-                Network Correspondence
-                <label class="network-atlas-label">
-                  Atlas
-                  <select class="network-atlas-select" v-model="networkAtlas">
-                    <option v-for="a in networkAtlases" :key="a" :value="a">{{ a }}</option>
-                  </select>
-                </label>
-              </div>
+             <div class="tract-section-title" data-tour="network-corr">
+  Network Correspondence
+</div>
               <p class="section-note">
                 Dice overlap between this tract's combined (LPI + RAS) endpoint map and each network of the
                 selected atlas, from the <a href="https://www.nature.com/articles/s41467-025-58176-9" target="_blank" rel="noopener">Network Correspondence Toolbox</a>
