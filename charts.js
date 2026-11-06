@@ -221,3 +221,117 @@ Vue.component('topic-wordcloud', {
     }
   }
 });
+
+Vue.component('topic-profile', {
+  props: {
+    lanes: { type: Array, required: true },
+    selectedTopic: { type: String, default: null },
+    hoverTopic: { type: String, default: null },
+    labelCount: { type: Number, default: 6 },
+    negLabelCount: { type: Number, default: 2 }
+  },
+  template: `
+  <svg class="chart-svg profile-svg" :viewBox="'0 0 ' + W + ' ' + H" role="img" aria-label="Topic profile">
+    <g v-for="ln in laid" :key="ln.key" class="lane">
+      <text class="lane-label" :x="12" :y="ln.yAxis - 4">{{ ln.label }}</text>
+      <text class="lane-sub" :x="12" :y="ln.yAxis + 12" v-if="ln.n">{{ ln.n }} topics</text>
+      <line class="grid" v-for="t in ticks" :key="'g' + t" :x1="xOf(t)" :x2="xOf(t)" :y1="ln.top + 6" :y2="ln.yAxis" :class="{ zero: t === 0 }" />
+      <line class="axis" :x1="X0" :x2="X1" :y1="ln.yAxis" :y2="ln.yAxis" />
+      <text class="tick" v-for="t in ticks" :key="'t' + t" :x="xOf(t)" :y="ln.yAxis + 13" text-anchor="middle">{{ t > 0 ? '+' : '' }}{{ t.toFixed(1) }}</text>
+      <g v-for="lb in ln.labels" :key="'l' + lb.topic" class="plabel" :class="stateClass(lb.topic)"
+         @click="$emit('select-topic', lb.topic)" @mouseenter="$emit('hover-topic', lb.topic)" @mouseleave="$emit('hover-topic', null)">
+        <path class="leader" :d="'M' + lb.x + ',' + (lb.y + 3) + ' V' + (lb.dy - 7) + ' L' + lb.dx + ',' + lb.dy" />
+        <text :x="lb.x" :y="lb.y" :text-anchor="lb.anchor">{{ lb.text }}</text>
+      </g>
+      <circle v-for="d in ln.dots" :key="d.topic" class="dot" :class="stateClass(d.topic)" :cx="d.x" :cy="d.y" :r="R"
+              :fill="d.v >= 0 ? '#e57536' : '#3b9fd0'" :fill-opacity="0.35 + 0.65 * d.t"
+              role="button" tabindex="0"
+              @click="$emit('select-topic', d.topic)" @keydown.enter.space.prevent="$emit('select-topic', d.topic)"
+              @mouseenter="$emit('hover-topic', d.topic)" @mouseleave="$emit('hover-topic', null)">
+        <title>{{ d.label }} — r = {{ d.v.toFixed(3) }} ({{ ln.label }}) · click for the full term list</title>
+      </circle>
+    </g>
+    <text v-if="!laid.length" class="chart-empty" :x="W / 2" :y="60" text-anchor="middle">No decoding scores</text>
+  </svg>`,
+  data() { return { W: 960, X0: 150, R: 5.2 }; },
+  mounted() {
+    const fit = () => {
+      const w = this.$el && this.$el.parentElement ? this.$el.parentElement.clientWidth : 0;
+      if (w) this.W = Math.max(520, Math.min(1100, w));
+    };
+    fit();
+    if (typeof ResizeObserver !== 'undefined' && this.$el && this.$el.parentElement) {
+      this._ro = new ResizeObserver(fit);
+      this._ro.observe(this.$el.parentElement);
+    }
+  },
+  beforeDestroy() { if (this._ro) this._ro.disconnect(); },
+  computed: {
+    X1() { return this.W - 24; },
+    H() {
+      const last = this.laid[this.laid.length - 1];
+      return last ? last.top + last.height + 8 : 120;
+    },
+    vmax() {
+      let m = 0.1;
+      this.lanes.forEach(ln => {
+        if (ln.row) Object.values(ln.row).forEach(v => {
+          if (v !== null && !isNaN(v)) m = Math.max(m, Math.abs(v));
+        });
+      });
+      return Math.ceil(m * 10) / 10;
+    },
+    ticks() {
+      const out = [];
+      for (let v = -this.vmax; v <= this.vmax + 1e-9; v += 0.1) out.push(Math.round(v * 10) / 10);
+      return out;
+    },
+    laid() {
+      const R = this.R, GAP = 2 * R + 1;
+      let top = 0;
+      return this.lanes.filter(ln => ln.row && Object.keys(ln.row).length).map(ln => {
+        const items = Object.entries(ln.row).filter(([, v]) => v !== null && !isNaN(v))
+          .map(([topic, v]) => ({ topic, v, x: this.xOf(v), label: topicLabel(topic), t: Math.abs(v) / this.vmax }))
+          .sort((a, b) => a.x - b.x);
+        const rows = [];
+        let maxRow = 0;
+        items.forEach(d => {
+          let r = 0;
+          while ((rows[r] || []).some(x => Math.abs(x - d.x) < GAP)) r++;
+          (rows[r] = rows[r] || []).push(d.x);
+          d.row = r;
+          maxRow = Math.max(maxRow, r);
+        });
+        const height = Math.max(150, 62 + (maxRow + 1) * (GAP - 1) + 34);
+        const yAxis = top + height - 26;
+        items.forEach(d => { d.y = yAxis - R - 1 - d.row * (GAP - 1); });
+        const nPos = this.W < 720 ? Math.min(4, this.labelCount) : this.labelCount;
+        const pos = items.filter(d => d.v > 0).sort((a, b) => b.v - a.v).slice(0, nPos).sort((a, b) => a.x - b.x);
+        const neg = items.filter(d => d.v < 0).sort((a, b) => a.v - b.v).slice(0, this.negLabelCount).sort((a, b) => a.x - b.x);
+        const labels = [];
+        const place = (arr, from, to, anchor) => {
+          if (!arr.length) return;
+          const step = (to - from) / arr.length;
+          arr.forEach((d, i) => {
+            const x = from + step * (i + 0.5);
+            labels.push({ topic: d.topic, text: this.shortLabel(d.label), x, y: top + 16 + (i % 3) * 14, dx: d.x, dy: d.y - R, anchor });
+          });
+        };
+        const zero = this.xOf(0);
+        place(pos, zero + 20, this.X1, 'middle');
+        place(neg, this.X0, zero - 20, 'middle');
+        const lane = { key: ln.key, label: ln.label, top, height, yAxis, dots: items, labels, n: items.length };
+        top += height;
+        return lane;
+      });
+    }
+  },
+  methods: {
+    xOf(v) { return this.X0 + (this.X1 - this.X0) * (v + this.vmax) / (2 * this.vmax); },
+    shortLabel(s) { return s.length > 19 ? s.slice(0, 18).replace(/\s+\S*$/, '') + '…' : s; },
+    stateClass(topic) {
+      const any = this.hoverTopic || this.selectedTopic;
+      return { active: this.selectedTopic === topic, hot: this.hoverTopic === topic, dim: any && this.hoverTopic !== topic && this.selectedTopic !== topic };
+    }
+  }
+});
