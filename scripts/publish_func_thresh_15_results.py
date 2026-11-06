@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish the smooth_3 reanalysis tables to the static website data folders."""
+"""Publish the continuous endpoint map results to the static website data folders."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE_ROOT = REPO_ROOT.parent
 ANALYSIS_ROOT = (
-    WORKSPACE_ROOT / "Kims-Revisions" / "data" / "func_thresh_15_reanalysis"
+    WORKSPACE_ROOT / "Kims-Revisions" / "data" / "continuous_endpoint_maps"
 )
 SMOOTH_DATA_ROOT = WORKSPACE_ROOT / "smooth_data"
 
