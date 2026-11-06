@@ -186,13 +186,13 @@ const SURF_PANEL_TEMPLATE = `
                   <div class="panel-card-title">RAS orientation</div>
                   <div class="surf-canvas-wrap">
                     <canvas ref="surfCanvasRAS"></canvas>
-                    <div class="surf-overlay" v-if="surfStatus.RAS === 'loading'"><div class="spinner"></div></div>
-                    <div class="surf-overlay surf-empty" v-if="surfStatus.RAS === 'empty'">No RAS surface data for this selection</div>
-                    <div class="surf-overlay surf-empty" v-if="surfStatus.RAS === 'nomembers'">Cluster membership couldn't be computed for this threshold</div>
-                    <div class="surf-overlay surf-empty" v-if="surfStatus.RAS === 'nowebgl'">3D view unavailable (WebGL failed to start in this browser)</div>
+                    <div class="surf-overlay" v-if="brain.status === 'loading'"><div class="spinner"></div></div>
+                    <div class="surf-overlay surf-empty" v-if="brain.status === 'empty'">No RAS surface data for this selection</div>
+                    <div class="surf-overlay surf-empty" v-if="brain.status === 'nomembers'">Cluster membership couldn't be computed for this threshold</div>
+                    <div class="surf-overlay surf-empty" v-if="brain.status === 'nowebgl'">3D view unavailable (WebGL failed to start in this browser)</div>
                   </div>
-                  <div class="surf-legend" v-if="surfStatus.RAS === 'ready'">
-                    <span>0</span><div class="legend-grad hot"></div><span>{{ surfMax.RAS.toFixed(2) }}</span>
+                  <div class="surf-legend" v-if="brain.status === 'ready'">
+                    <span>0</span><div class="legend-grad hot"></div><span>{{ brain.max.toFixed(2) }}</span>
                   </div>
                 </div>
                 <div class="brain-legend" v-if="brain.status === 'ready' && brain.mode !== 'none'" :class="{ raised: brain.atlas && atlasInfo }">
@@ -281,35 +281,6 @@ const TOPICS_HEAD_TEMPLATE = `
                   <button :class="{ active: topicsMode === 'list' }" @click="topicsMode = 'list'">Ranked list</button>
                 </div>
               </div>
-`;
-
-// Cluster View: ONE combined map — every member tract's LPI and RAS
-// endpoint maps merged (per-vertex max), like the "Cluster #N_LPI+RAS"
-// figures, coloured with the cluster's own colour ramp.
-const CLUSTER_SURF_TEMPLATE = `
-            <template v-if="surfBase && surfMeshBase">
-              <div class="tract-section-title">Cortical Endpoint Map (3D)</div>
-              <div class="panel-card surf-card" data-tour="surf-map" style="max-width:900px;">
-                <div class="panel-card-title">Cluster {{ selectedCluster }} — LPI + RAS combined</div>
-                <div class="surf-canvas-wrap">
-                  <canvas ref="surfCanvasRAS"></canvas>
-                  <div class="surf-overlay" v-if="surfStatus.RAS === 'loading'"><div class="spinner"></div></div>
-                  <div class="surf-overlay surf-empty" v-if="surfStatus.RAS === 'empty'">No surface data for this cluster's tracts</div>
-                  <div class="surf-overlay surf-empty" v-if="surfStatus.RAS === 'nomembers'">Cluster membership couldn't be computed for this threshold</div>
-                  <div class="surf-overlay surf-empty" v-if="surfStatus.RAS === 'nowebgl'">3D view unavailable (WebGL failed to start in this browser)</div>
-                </div>
-                <div class="controls">
-                  <span class="bar-legend" style="margin:0"><i style="background:#e57536"></i>positive r <i style="background:#3b9fd0;margin-left:10px"></i>negative r</span>
-                </div>
-              </div>
-              <p class="section-note" v-if="topicsMode === 'chart'">
-                Every one of the 104 NeuroQuery topics, placed by its correlation (Pearson r) with the endpoint map; stacked dots share the same value.
-                <template v-if="tab === 'tract'">The three lanes share one axis, so a topic that only one endpoint carries stands out at a glance.</template>
-                The strongest topics are labelled. Hover for the name and value; click a dot or a label to open the topic's term list (step 3).
-              </p>
-              <p class="section-note" v-else>
-                The strongest topics as a ranked list with exact values<template v-if="tab === 'tract'">, for the joint map and each endpoint on its own</template>. Click a topic to open its term list.
-              </p>
 `;
 
 // Networks panel: link the rows to the brain.
@@ -546,29 +517,15 @@ Vue.component('wmc-viewer', {
                         <span class="topic-bar-val">{{ item.value.toFixed(3) }}</span>
                       </div>
                     </div>
-            ${CLUSTER_SURF_TEMPLATE}
-
-            <!-- Live decoding scores for this cluster (if cluster-matrix.csv exists for this threshold) -->
-            <template v-if="clusterMatrix[selectedCluster]">
-              <div class="tract-section-title">Top Cognitive Topics</div>
-              <div class="topics-row" data-tour="topics">
-              <div class="topic-bars">
-                <div v-for="item in clusterTopTopics" :key="item.topic" class="topic-bar-row clickable"
-                     :class="{ active: selectedTopic === item.topic }" role="button" tabindex="0"
-                     @click="toggleTopic(item.topic)" @keydown.enter.space.prevent="toggleTopic(item.topic)">
-                  <div class="topic-bar-label" :title="'Click to see all terms in ' + item.topic">{{ topicLabel(item.topic) }}</div>
-                  <div class="topic-bar-track">
-                    <div
-                      class="topic-bar-fill"
-                      :style="{
-                        width: clusterBarWidth(item.value) + '%',
-                        background: item.value >= 0 ? '#e07b7b' : '#4f8ef7'
-                      }"
-                    ></div>
-                    <span class="topic-bar-val">{{ item.value.toFixed(3) }}</span>
                   </div>
-                  ${TOPIC_PANEL_TEMPLATE}
                 </div>
+                <p class="section-note" v-if="topicsMode === 'chart'">
+                  All 104 NeuroQuery topics are shown along the same Pearson r axis. Hover for a score; click a dot or label to open the topic's term list.
+                </p>
+                <p class="section-note" v-else>
+                  The strongest topics as a ranked list with exact values. Click a topic to open its term list.
+                </p>
+                ${TOPIC_PANEL_TEMPLATE}
               </template>
               <div v-else class="network-corr-empty">No cluster-level decoding for this threshold.</div>
             </section>
