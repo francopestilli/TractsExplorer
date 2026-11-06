@@ -160,6 +160,7 @@ The site is static, so it can be served from GitHub Pages (Settings → Pages �
 | `charts.js` | radar chart + word cloud |
 | `surf3d.js` | GIFTI parsing + three.js cortical surface rendering |
 | `scripts/export_topic_terms.py` | builds `assets/decoding/topic-terms.json` |
+| `scripts/export_network_atlases.py` | builds the atlas maps and color palettes used by the Networks panel and brain overlay |
 | `scripts/compute_network_correspondence.py` | builds `network-correspondence.csv` (run in the separate `cbig_nc` environment — see above) |
 | `scripts/publish_func_thresh_15_results.py` | publishes and validates the smooth_3 reanalysis tables from the sibling `Kims-Revisions` project |
 
