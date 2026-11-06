@@ -867,21 +867,6 @@ ${SURF_PANEL_TEMPLATE}
       </div>
     </div>
 
-    <!-- ── Intro tour ──────────────────────────────────────── -->
-    <div class="tour-overlay" v-if="tourActive">
-      <div class="tour-dim" v-if="tourRect" :style="tourDimStyle"></div>
-      <div class="tour-popover" :class="{ centered: !tourRect }" :style="tourPopoverStyle">
-        <button class="tour-popover-close" @click="skipTour" aria-label="Close tour">×</button>
-        <div class="tour-popover-title">{{ currentTourStep.title }}</div>
-        <div class="tour-popover-body">{{ currentTourStep.body }}</div>
-        <div class="tour-popover-footer">
-          <span class="tour-step-count">{{ tourIndex + 1 }} / {{ tourSteps.length }}</span>
-          <div class="tour-popover-actions">
-            <button class="tour-btn tour-btn-ghost" @click="prevTourStep" v-if="tourIndex > 0">Back</button>
-            <button class="tour-btn tour-btn-primary" @click="nextTourStep">{{ tourIndex === tourSteps.length - 1 ? 'Done' : 'Next' }}</button>
-        </div>
-      </div>
-    </div>
 
   </div>
   `,
@@ -935,14 +920,7 @@ ${SURF_PANEL_TEMPLATE}
       tour: { active: false, step: 0, rect: null, place: 'below', cardStyle: {} },
       dendroOpen: true,          // dendrogram shown in the sidebar
       openClusters: {},          // { clusterId: true } — expanded rows in the sidebar tree
-      guideDismissed: readPref('wmc.guideDismissed') === '1',
-
-      // Intro tour (guided walkthrough) — see startTour()/buildTourSteps().
-      tourActive: false,
-      tourSteps: [],
-      tourIndex: 0,
-      tourRect: null,            // target element's viewport rect for the current step, or null (centered step)
-      tourPopoverPos: { top: 0, left: 0 }
+      guideDismissed: readPref('wmc.guideDismissed') === '1'
     };
   },
 
@@ -1101,8 +1079,10 @@ ${SURF_PANEL_TEMPLATE}
           body: 'Tract endpoints are defined by an endpoint-density cutoff. Each threshold has its own decoding and its own clustering solution; the label shows how many clusters it yields. The paper\'s default is 0.15.' },
         { target: 'stepper', title: 'Your path: Cluster › Tract › Topic',
           body: 'The explorer is a drill-down in three steps, and this bar always shows where you are. Click a step to go back to it. <b>Full matrix</b> on the right is the alternative: browse every tract and topic at once.' },
-        { target: 'sidebar', title: 'The cluster tree', prep: () => { this.sidebarOpen = true; },
+        { target: 'sidebar', title: 'The cluster tree', prep: () => { this.sidebarOpen = true; this.sideMode = 'clusters'; },
           body: 'Every tract as a leaf of the dendrogram, grouped by how similar their decoding profiles are. Click a coloured branch to view that cluster, a tract name to open it, the numbered chips to jump between clusters, or search by name (Enter opens the first match).' },
+        { target: 'sidebar-tabs', title: 'Clusters or tracts', prep: () => { this.sidebarOpen = true; },
+          body: '<b>Clusters</b> shows the tree; <b>Tracts</b> lists every tract alphabetically with its side, for when you already know what you are looking for. The search box above filters both.' },
         { target: 'selection', title: 'What is selected', prep: () => { this.sidebarOpen = false; if (this.tab === 'matrix') this.showClusterView(); },
           body: 'The header names the selected cluster or tract, how it was defined, and its members. The tags are shortcuts: click a tract to go to step 2, or jump back to its cluster.' },
         { target: 'subtabs', title: 'One panel at a time',
@@ -1201,21 +1181,6 @@ ${SURF_PANEL_TEMPLATE}
         .map(([topic, value]) => ({ topic, value }));
     },
 
-    // ── Intro tour ──────────────────────────────────────────────────
-    currentTourStep() { return this.tourSteps[this.tourIndex] || {}; },
-    // Spotlight cutout: a box-shadow with a huge spread dims the whole page
-    // except this element's own box, which lands exactly on the target.
-    tourDimStyle() {
-      const r = this.tourRect;
-      return {
-        top: r.top + 'px', left: r.left + 'px',
-        width: r.width + 'px', height: r.height + 'px'
-      };
-    },
-    tourPopoverStyle() {
-      if (!this.tourRect) return {};
-      return { top: this.tourPopoverPos.top + 'px', left: this.tourPopoverPos.left + 'px' };
-    }
   },
 
   mounted() {
@@ -1275,145 +1240,6 @@ ${SURF_PANEL_TEMPLATE}
 
   methods: {
     // ── Intro tour ────────────────────────────────────────────────
-    // Each step: { target?: '<data-tour value>', title, body, before?: fn }.
-    // `target` omitted ⇒ a centered step (welcome/closing). `before` runs
-    // right before the step is shown, to switch tab/sideMode/selection so
-    // the target element actually exists in the DOM.
-    buildTourSteps() {
-      const steps = [];
-      steps.push({
-        title: 'Welcome to the WMC Tract Endpoint Decoding Viewer',
-        body: 'A quick tour of how to explore the data — about a minute. Click Next to begin, or × to skip.'
-      });
-      steps.push({
-        target: 'threshold',
-        title: 'Pick a threshold',
-        body: "Each threshold re-clusters the 51 tracts into a different number of functional groups, with its own decoding. Start here."
-      });
-      steps.push({
-        target: 'stepper',
-        title: 'Choose a view',
-        body: 'Explore a cluster, focus on one tract, or browse every tract × topic score in the full matrix.'
-      });
-      if (this.clustersEnabled) {
-        steps.push({
-          target: 'sidebar-tabs',
-          before: () => { this.showClusterView(); },
-          title: 'Browse by cluster or tract',
-          body: 'Switch the sidebar between browsing clusters or searching for a specific tract.'
-        });
-        steps.push({
-          target: 'dendrogram',
-          before: () => { this.sideMode = 'clusters'; this.tab = 'cluster'; },
-          title: 'The dendrogram',
-          body: 'Shows how tracts group together by functional similarity. Click a branch to open a cluster, or a leaf to jump straight to one tract.'
-        });
-        steps.push({
-          target: 'cluster-list',
-          before: () => { this.sideMode = 'clusters'; this.tab = 'cluster'; },
-          title: 'Or pick a cluster directly',
-          body: 'Each cluster lists its member tract count — click one to see its combined profile.'
-        });
-        steps.push({
-          target: 'surf-map',
-          before: () => {
-            this.sideMode = 'clusters'; this.tab = 'cluster';
-            if (!this.selectedCluster && this.clusters.length) this.selectCluster(this.clusters[0].id);
-          },
-          title: 'Live 3D endpoint map',
-          body: 'Once a cluster (or tract) is selected, its cortical endpoint map renders live in 3D — drag to rotate, scroll to zoom.'
-        });
-        steps.push({
-          target: 'topics',
-          before: () => { this.sideMode = 'clusters'; this.tab = 'cluster'; },
-          title: 'Top Cognitive Topics',
-          body: 'The strongest NeuroQuery topics for this selection — red bars are positive associations, blue are negative. Click a bar for the full term list.'
-        });
-        steps.push({
-          target: 'network-corr',
-          before: () => { this.sideMode = 'clusters'; this.tab = 'cluster'; },
-          title: 'Network Correspondence',
-          body: 'Dice overlap with canonical functional brain networks. Use the Atlas dropdown to compare against different reference parcellations.'
-        });
-      }
-      steps.push({
-        target: 'tract-search',
-        before: () => {
-          this.showTractView();
-          if (!this.selectedTract && this.tractOrder.length) this.selectTract(this.tractOrder[0]);
-        },
-        title: this.clustersEnabled ? 'Or explore one tract at a time' : 'Search for a tract',
-        body: "Tract View breaks a single tract's endpoints into RAS and LPI orientations, decoded separately."
-      });
-      if (!this.clustersEnabled) {
-        steps.push({ target: 'surf-map', title: 'Live 3D endpoint map', body: 'Drag to rotate, scroll to zoom.' });
-        steps.push({ target: 'topics', title: 'Top Cognitive Topics', body: 'Click a bar for the full term list.' });
-        steps.push({ target: 'network-corr', title: 'Network Correspondence', body: 'Dice overlap with canonical functional brain networks, via the Atlas dropdown.' });
-      }
-      steps.push({
-        target: 'matrix-table',
-        before: () => { this.tab = 'matrix'; },
-        title: 'Full Matrix',
-        body: 'Every tract × topic decoding score at once — hover a cell for the exact value, or click a row to open that tract.'
-      });
-      steps.push({
-        title: "That's it!",
-        body: 'Click the "? Help" button in the header any time to replay this tour.'
-      });
-      return steps;
-    },
-
-    startTour() {
-      this.tourSteps = this.buildTourSteps();
-      this.goToTourStep(0, 1);
-    },
-
-    skipTour() {
-      this.tourActive = false;
-      try { localStorage.setItem('wmc_tour_seen', '1'); } catch (e) { /* storage unavailable */ }
-    },
-
-    prevTourStep() { this.goToTourStep(this.tourIndex - 1, -1); },
-    nextTourStep() { this.goToTourStep(this.tourIndex + 1, 1); },
-
-    // dir says which way to keep skipping if a step's target element isn't
-    // in the DOM for the current config (e.g. no-cluster thresholds).
-    goToTourStep(i, dir) {
-      if (i < 0 || i >= this.tourSteps.length) { this.skipTour(); return; }
-      const step = this.tourSteps[i];
-      this.tourIndex = i;
-      this.tourActive = true;
-      if (step.before) step.before();
-      this.$nextTick(() => {
-        setTimeout(() => {
-          if (!this.positionTour(step)) this.goToTourStep(i + dir, dir);
-        }, step.target ? 260 : 0);
-      });
-    },
-
-    // Measures the step's target element and stores its viewport rect (for
-    // the spotlight) plus a clamped popover position next to it. Returns
-    // false if the target isn't present/visible, so the caller can skip it.
-    positionTour(step) {
-      if (!step.target) { this.tourRect = null; return true; }
-      const el = this.$el.querySelector('[data-tour="' + step.target + '"]');
-      if (!el) return false;
-      el.scrollIntoView({ block: 'center', behavior: 'auto' });
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 && r.height === 0) return false;
-      const pad = 6;
-      this.tourRect = { top: r.top - pad, left: r.left - pad, width: r.width + pad * 2, height: r.height + pad * 2 };
-      const popW = 320, popH = 170, margin = 14;
-      let top = this.tourRect.top + this.tourRect.height + margin;
-      if (top + popH > window.innerHeight) top = this.tourRect.top - popH - margin;
-      if (top < margin) top = margin;
-      let left = this.tourRect.left;
-      if (left + popW > window.innerWidth - margin) left = window.innerWidth - popW - margin;
-      if (left < margin) left = margin;
-      this.tourPopoverPos = { top, left };
-      return true;
-    },
-
     onThresholdChange() {
       // The loading panel below unmounts the Tract View's canvases, so release
       // the old WebGL scenes now; refreshTractSurfaces() recreates them on the
@@ -1467,6 +1293,14 @@ ${SURF_PANEL_TEMPLATE}
             // on its own, nothing to (re)select here.
           } else if (this.clustersEnabled && this.clusters.length > 0) {
             this.selectCluster(this.clusters[0].id);
+          }
+
+          // First visit: open the guided tour once the page has something to show.
+          if (!this._tourOffered) {
+            this._tourOffered = true;
+            if (readPref('wmc.tourDone') !== '1' && !location.hash) {
+              setTimeout(() => { if (!this.tour.active) this.startTour(); }, 900);
+            }
           }
 
         },
@@ -1649,9 +1483,8 @@ ${SURF_PANEL_TEMPLATE}
     startTour() {
       this.helpOpen = false;
       if (this.tab === 'matrix') this.showClusterView();
-      this.tourSteps = this.buildTourSteps();
-      this.tour.step = 0;
       this.tour.active = true;
+      this.tour.step = 0;
       this.tourShow();
       if (!this._tourKey) {
         this._tourKey = e => {

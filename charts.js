@@ -1,9 +1,12 @@
 /* ─────────────────────────────────────────────────────────────────
    charts.js — live Radar + Word Cloud for topic decoding scores
    Replaces the pre-rendered *_radar.png / *_wordcloud.png images.
-   Depends on: Vue 2 only. Both render as SVG on a white card (same
-   look as the original matplotlib/wordcloud PNGs) and are coloured
-   with a light → dark ramp of the given cluster colour.
+   Depends on: Vue 2 only. Both render as SVG on the site's dark ground
+   and are coloured with a dim → bright ramp of the given cluster colour,
+   so the strongest topics read brightest. Both are interactive: click a
+   bar / word to open that topic (emits 'select-topic'), hover to link the
+   two charts (emits 'hover-topic'); `selectedTopic` / `hoverTopic` props
+   highlight the matching bar and words.
    ───────────────────────────────────────────────────────────────── */
 
 // "102_novel_repetition_priming" → ["novel", "repetition", "priming"]
@@ -26,6 +29,12 @@ function _lerp(a, b, t) { return a.map((x, i) => x + (b[i] - x) * t); }
 function clusterRamp(base) {
   const b = _hexToRgb(base || '#4f8ef7');
   return [_lerp([255, 255, 255], b, 0.18), b, b.map(x => x * 0.42)].map(_rgbToHex);
+}
+// Same idea for charts drawn on the dark page ground: muted (mixed with the
+// ground) → the colour → a pale, bright tint, so strong = bright.
+function darkRamp(base) {
+  const b = _hexToRgb(base || '#4f8ef7');
+  return [_lerp([23, 35, 52], b, 0.42), b, _lerp(b, [255, 255, 255], 0.5)].map(_rgbToHex);
 }
 function rampColor(stops, t) {
   t = Math.max(0, Math.min(1, t));
@@ -50,7 +59,9 @@ Vue.component('topic-radar', {
     n:      { type: Number, default: 10 },
     // Optional { topicName: [[term, weight], …] } — e.g. functional terms only.
     // When given, bars are labelled with each topic's top 3 of these terms.
-    termSets: { type: Object, default: null }
+    termSets: { type: Object, default: null },
+    selectedTopic: { type: String, default: null },
+    hoverTopic:    { type: String, default: null }
   },
   template: `
   <svg class="chart-svg" viewBox="-340 -320 680 640" role="img"
@@ -60,13 +71,17 @@ Vue.component('topic-radar', {
       <circle v-for="t in ticks" :key="'c'+t.v" :r="t.r" class="radar-grid" />
       <line v-for="b in bars" :key="'s'+b.topic" class="radar-spoke"
             :x1="b.sx0" :y1="b.sy0" :x2="b.sx1" :y2="b.sy1" />
-      <path v-for="b in bars" :key="'b'+b.topic" :d="b.path" :fill="b.fill" class="radar-bar">
-        <title>{{ b.label }}: {{ b.value.toFixed(3) }}</title>
-      </path>
+      <g v-for="b in bars" :key="'g'+b.topic" class="radar-item"
+         :class="{ active: selectedTopic === b.topic, hot: hoverTopic === b.topic, dim: (hoverTopic || selectedTopic) && hoverTopic !== b.topic && selectedTopic !== b.topic }"
+         role="button" tabindex="0"
+         @click="$emit('select-topic', b.topic)" @keydown.enter.space.prevent="$emit('select-topic', b.topic)"
+         @mouseenter="$emit('hover-topic', b.topic)" @mouseleave="$emit('hover-topic', null)">
+        <path :d="b.path" :fill="b.fill" class="radar-bar"><title>{{ b.label }}: r = {{ b.value.toFixed(3) }} — click for the full term list</title></path>
+        <text class="radar-label" :text-anchor="b.anchor">
+          <tspan v-for="(w, i) in b.lines" :key="i" :x="b.lx" :y="b.ly + i * lh">{{ w }}</tspan>
+        </text>
+      </g>
       <text v-for="t in ticks" :key="'t'+t.v" class="radar-tick" x="0" :y="-t.r" dy="-3" text-anchor="middle">{{ t.v.toFixed(1) }}</text>
-      <text v-for="b in bars" :key="'l'+b.topic" class="radar-label" :text-anchor="b.anchor">
-        <tspan v-for="(w, i) in b.lines" :key="i" :x="b.lx" :y="b.ly + i * lh">{{ w }}</tspan>
-      </text>
     </g>
   </svg>`,
   data() { return { lh: RADAR.LH }; },
@@ -94,7 +109,7 @@ Vue.component('topic-radar', {
       const N = this.top.length;
       if (!N) return [];
       const step = 2 * Math.PI / N, half = step * 0.4;
-      const stops = clusterRamp(this.color);
+      const stops = darkRamp(this.color);
       const vHi = this.top[0][1], vLo = this.top[N - 1][1];
       const P = (r, a) => [r * Math.cos(a), -r * Math.sin(a)];   // SVG y points down
       return this.top.map(([topic, value], i) => {
@@ -117,7 +132,7 @@ Vue.component('topic-radar', {
         return {
           topic, value, path, lines, lx, ly, sx0, sy0, sx1, sy1,
           label: labelTerms.join(', '),
-          fill: rampColor(stops, 0.15 + 0.85 * t),
+          fill: rampColor(stops, 0.2 + 0.8 * t),
           anchor: cos > 0.25 ? 'start' : cos < -0.25 ? 'end' : 'middle'
         };
       });
@@ -184,16 +199,22 @@ Vue.component('topic-wordcloud', {
     maxWords: { type: Number, default: 90 },
     // Optional { topicName: [[term, weight], …] }: each term then counts
     // topic score × term weight. Default: the 3 terms in the topic name, weight 1.
-    termSets: { type: Object, default: null }
+    termSets: { type: Object, default: null },
+    selectedTopic: { type: String, default: null },
+    hoverTopic:    { type: String, default: null }
   },
   template: `
   <svg class="chart-svg" :viewBox="(-W/2) + ' ' + (-H/2) + ' ' + W + ' ' + H" role="img" aria-label="Topic word cloud">
     <text v-if="!words.length" class="chart-empty" x="0" y="0" text-anchor="middle">No positive topic scores</text>
     <text v-for="w in words" :key="w.text" class="cloud-word" text-anchor="middle"
+          :class="{ hot: isHot(w), dim: (hoverTopic || selectedTopic) && !isHot(w) }"
+          role="button" tabindex="0"
           :x="w.x" :y="w.y + w.baseline" :font-size="w.size" :fill="w.fill"
-          :transform="w.rot ? 'rotate(-90 ' + w.x + ' ' + w.y + ')' : null">{{ w.text }}<title>{{ w.text }} — weight {{ w.weight.toFixed(3) }}</title></text>
+          :transform="w.rot ? 'rotate(-90 ' + w.x + ' ' + w.y + ')' : null"
+          @click="$emit('select-topic', mainTopic[w.text])" @keydown.enter.space.prevent="$emit('select-topic', mainTopic[w.text])"
+          @mouseenter="$emit('hover-topic', mainTopic[w.text])" @mouseleave="$emit('hover-topic', null)">{{ w.text }}<title>{{ w.text }} — weight {{ w.weight.toFixed(3) }} · in {{ (wordTopics[w.text] || []).length }} topic(s); click for the strongest</title></text>
   </svg>`,
-  data() { return { W: 680, H: 640, words: [] }; },  // same shape as the radar
+  data() { return { W: 680, H: 640, words: [], wordTopics: {}, mainTopic: {} }; },  // same shape as the radar
   watch: {
     scores()   { this.layout(); },
     color()    { this.layout(); },
@@ -201,8 +222,12 @@ Vue.component('topic-wordcloud', {
   },
   mounted() { this.layout(); },
   methods: {
+    isHot(w) {
+      const ts = this.wordTopics[w.text] || [];
+      return (this.hoverTopic && ts.includes(this.hoverTopic)) || (this.selectedTopic && ts.includes(this.selectedTopic));
+    },
     layout() {
-      const weights = {};
+      const weights = {}, byWord = {};
       if (this.scores) {
         Object.entries(this.scores).forEach(([topic, v]) => {
           if (v === null || isNaN(v) || v <= 0) return;
@@ -210,24 +235,40 @@ Vue.component('topic-wordcloud', {
           set.forEach(([term, w]) => {
             const k = term.toLowerCase();
             weights[k] = (weights[k] || 0) + v * w;
+            (byWord[k] = byWord[k] || []).push([topic, v * w]);
           });
         });
       }
+      // Which topics each word comes from (for highlighting) and the one
+      // contributing most (what a click opens).
+      const wordTopics = {}, mainTopic = {};
+      Object.entries(byWord).forEach(([k, list]) => {
+        list.sort((a, b) => b[1] - a[1]);
+        wordTopics[k] = list.map(x => x[0]);
+        mainTopic[k] = list[0][0];
+      });
+      this.wordTopics = Object.freeze(wordTopics);
+      this.mainTopic = Object.freeze(mainTopic);
       const fontFamily = (this.$el && getComputedStyle(this.$el).fontFamily) || 'sans-serif';
       this.words = layoutWordCloud(weights, {
         width: this.W, height: this.H, maxWords: this.maxWords,
-        minFont: 12, maxFont: 90, fontFamily, stops: clusterRamp(this.color)
+        minFont: 12, maxFont: 90, fontFamily, stops: darkRamp(this.color)
       });
     }
   }
 });
 
+// ─── Topic profile ─────────────────────────────────────────────────
+// All 104 topics of one decoding row as a beeswarm along a signed r axis;
+// several rows ("lanes", e.g. joint / RAS / LPI) share one axis so they
+// can be compared directly. The strongest topics are labelled. Hover and
+// click emit 'hover-topic' / 'select-topic' like the other charts.
 Vue.component('topic-profile', {
   props: {
-    lanes: { type: Array, required: true },
+    lanes: { type: Array, required: true },      // [{ key, label, row: { topic: r } }]
     selectedTopic: { type: String, default: null },
-    hoverTopic: { type: String, default: null },
-    labelCount: { type: Number, default: 6 },
+    hoverTopic:    { type: String, default: null },
+    labelCount:    { type: Number, default: 6 },  // positive-side labels per lane
     negLabelCount: { type: Number, default: 2 }
   },
   template: `
@@ -255,30 +296,18 @@ Vue.component('topic-profile', {
   </svg>`,
   data() { return { W: 960, X0: 150, R: 5.2 }; },
   mounted() {
-    const fit = () => {
-      const w = this.$el && this.$el.parentElement ? this.$el.parentElement.clientWidth : 0;
-      if (w) this.W = Math.max(520, Math.min(1100, w));
-    };
+    // Fit the container: the chart keeps its type size instead of shrinking with the column.
+    const fit = () => { const w = this.$el && this.$el.parentElement ? this.$el.parentElement.clientWidth : 0; if (w) this.W = Math.max(520, Math.min(1100, w)); };
     fit();
-    if (typeof ResizeObserver !== 'undefined' && this.$el && this.$el.parentElement) {
-      this._ro = new ResizeObserver(fit);
-      this._ro.observe(this.$el.parentElement);
-    }
+    if (typeof ResizeObserver !== 'undefined' && this.$el && this.$el.parentElement) { this._ro = new ResizeObserver(fit); this._ro.observe(this.$el.parentElement); }
   },
   beforeDestroy() { if (this._ro) this._ro.disconnect(); },
   computed: {
     X1() { return this.W - 24; },
-    H() {
-      const last = this.laid[this.laid.length - 1];
-      return last ? last.top + last.height + 8 : 120;
-    },
+    H() { const last = this.laid[this.laid.length - 1]; return last ? last.top + last.height + 8 : 120; },
     vmax() {
       let m = 0.1;
-      this.lanes.forEach(ln => {
-        if (ln.row) Object.values(ln.row).forEach(v => {
-          if (v !== null && !isNaN(v)) m = Math.max(m, Math.abs(v));
-        });
-      });
+      this.lanes.forEach(ln => { if (ln.row) Object.values(ln.row).forEach(v => { if (v !== null && !isNaN(v)) m = Math.max(m, Math.abs(v)); }); });
       return Math.ceil(m * 10) / 10;
     },
     ticks() {
@@ -289,29 +318,31 @@ Vue.component('topic-profile', {
     laid() {
       const R = this.R, GAP = 2 * R + 1;
       let top = 0;
-      return this.lanes.filter(ln => ln.row && Object.keys(ln.row).length).map(ln => {
+      return this.lanes.filter(ln => ln.row && Object.keys(ln.row).length).map((ln, li) => {
         const items = Object.entries(ln.row).filter(([, v]) => v !== null && !isNaN(v))
           .map(([topic, v]) => ({ topic, v, x: this.xOf(v), label: topicLabel(topic), t: Math.abs(v) / this.vmax }))
           .sort((a, b) => a.x - b.x);
-        const rows = [];
+        // beeswarm: stack a dot on the first row where it doesn't touch an earlier dot
+        const rows = [];   // rows[r] = array of x already placed on that row
         let maxRow = 0;
         items.forEach(d => {
           let r = 0;
           while ((rows[r] || []).some(x => Math.abs(x - d.x) < GAP)) r++;
           (rows[r] = rows[r] || []).push(d.x);
-          d.row = r;
-          maxRow = Math.max(maxRow, r);
+          d.row = r; maxRow = Math.max(maxRow, r);
         });
+        // lane height: label rows (3 × 14) + the swarm + the axis
         const height = Math.max(150, 62 + (maxRow + 1) * (GAP - 1) + 34);
         const yAxis = top + height - 26;
         items.forEach(d => { d.y = yAxis - R - 1 - d.row * (GAP - 1); });
+        // labels: strongest positives spread evenly over the right half, strongest negatives over the left
         const nPos = this.W < 720 ? Math.min(4, this.labelCount) : this.labelCount;
         const pos = items.filter(d => d.v > 0).sort((a, b) => b.v - a.v).slice(0, nPos).sort((a, b) => a.x - b.x);
         const neg = items.filter(d => d.v < 0).sort((a, b) => a.v - b.v).slice(0, this.negLabelCount).sort((a, b) => a.x - b.x);
         const labels = [];
         const place = (arr, from, to, anchor) => {
           if (!arr.length) return;
-          const step = (to - from) / arr.length;
+          const span = to - from, step = span / arr.length;
           arr.forEach((d, i) => {
             const x = from + step * (i + 0.5);
             labels.push({ topic: d.topic, text: this.shortLabel(d.label), x, y: top + 16 + (i % 3) * 14, dx: d.x, dy: d.y - R, anchor });
