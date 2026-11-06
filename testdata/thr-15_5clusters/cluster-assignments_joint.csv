@@ -9,7 +9,7 @@ leftIFOF,5
 leftILF,2
 leftMDLFang,3
 leftMDLFspl,4
-leftOpticRadiation,2
+leftSuperiorOpticRadiation,2
 leftSLF1And2,1
 leftSLF3,4
 leftTPC,2
@@ -17,7 +17,7 @@ leftUncinate,5
 leftVOF,2
 leftcingulum,5
 leftfrontoThalamic,5
-leftmeyer,2
+leftInferiorOpticRadiation,2
 leftmotorThalamic,1
 leftpArc,3
 leftparietoThalamic,1

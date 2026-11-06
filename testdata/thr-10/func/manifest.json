@@ -110,7 +110,7 @@
 "RAS"
 ]
 },
-"leftOpticRadiation": {
+"leftSuperiorOpticRadiation": {
 "lh": [
 "LPI",
 "RAS"
@@ -177,7 +177,7 @@
 "RAS"
 ]
 },
-"leftmeyer": {
+"leftInferiorOpticRadiation": {
 "lh": [
 "LPI",
 "RAS"
@@ -316,7 +316,7 @@
 "RAS"
 ]
 },
-"rightOpticRadiation": {
+"rightSuperiorOpticRadiation": {
 "rh": [
 "LPI",
 "RAS"
@@ -382,7 +382,7 @@
 "RAS"
 ]
 },
-"rightmeyer": {
+"rightInferiorOpticRadiation": {
 "rh": [
 "LPI",
 "RAS"

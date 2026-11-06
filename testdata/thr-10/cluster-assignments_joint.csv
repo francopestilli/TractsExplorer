@@ -12,7 +12,7 @@ leftILF,2
 leftMDLFang,1
 leftMDLFspl,2
 leftMotorCerebellar,4
-leftOpticRadiation,2
+leftSuperiorOpticRadiation,2
 leftSLF1And2,2
 leftSLF3,4
 leftTPC,2
@@ -20,7 +20,7 @@ leftUncinate,3
 leftVOF,2
 leftcingulum,3
 leftfrontoThalamic,3
-leftmeyer,2
+leftInferiorOpticRadiation,2
 leftmotorThalamic,4
 leftpArc,1
 leftparietoThalamic,2
@@ -37,7 +37,7 @@ rightILF,2
 rightMDLFang,3
 rightMDLFspl,2
 rightMotorCerebellar,4
-rightOpticRadiation,2
+rightSuperiorOpticRadiation,2
 rightSLF1And2,4
 rightSLF3,4
 rightTPC,2
@@ -45,7 +45,7 @@ rightUncinate,3
 rightVOF,2
 rightcingulum,3
 rightfrontoThalamic,3
-rightmeyer,2
+rightInferiorOpticRadiation,2
 rightmotorThalamic,4
 rightpArc,3
 rightparietoThalamic,4

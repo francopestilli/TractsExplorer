@@ -81,7 +81,7 @@ The website's selected endpoint maps are checked vertex-for-vertex against
 those source maps before publishing. The full available cohort includes all 61
 tracts with complete LPI/RAS map pairs at each threshold. Threshold 0.15 also
 has a separate fixed 43-tract cohort, listed in the selector as such.
-`leftbaum` is represented by `leftOpticRadiation`.
+`leftbaum` is represented by `leftSuperiorOpticRadiation`.
 
 Tract decoding matrices are retained for LPI, RAS, and joint LPI + RAS, but
 clustering, cluster decodings, dendrograms, and cluster-quality metrics are
