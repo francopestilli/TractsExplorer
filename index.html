@@ -3,259 +3,207 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>White Matter Tract Explorer</title>
-  <link rel="icon" href="data:," />
-  <style>
-    :root {
-      --bg:          #0d0e13;
-      --surface:     #16181f;
-      --surface2:    #1e212b;
-      --border:      #2a2d38;
-      --accent:      #5b9bff;
-      --text:        #e9eaf0;
-      --text-muted:  #868ba3;
-      --radius:      10px;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    }
-    .page { max-width: 1120px; margin: 0 auto; padding: 56px 24px 40px; }
-
-    /* ── Hero: one large visual + the actual point of the tool ───────── */
-    .hero {
-      display: grid;
-      grid-template-columns: 1.05fr 1fr;
-      gap: 48px;
-      align-items: center;
-      margin-bottom: 72px;
-    }
-    .hero h1 {
-      font-size: clamp(24px, 2.6vw, 32px);
-      line-height: 1.25;
-      font-weight: 700;
-      color: var(--text);
-      margin: 0 0 10px;
-    }
-    .hero .tagline {
-      font-size: clamp(18px, 2vw, 22px);
-      line-height: 1.4;
-      font-weight: 600;
-      color: var(--accent);
-      margin: 0 0 16px;
-      max-width: 40ch;
-    }
-    .hero .lede {
-      font-size: 15.5px;
-      line-height: 1.65;
-      color: var(--text-muted);
-      margin: 0 0 28px;
-      max-width: 46ch;
-    }
-    .cta-row { display: flex; flex-wrap: wrap; gap: 12px; }
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 11px 20px;
-      border-radius: var(--radius);
-      font-size: 14.5px;
-      font-weight: 600;
-      text-decoration: none;
-      transition: transform .12s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease;
-    }
-    .btn-primary { background: var(--accent); color: #0a0d14; }
-    .btn-primary:hover { background: #79adff; transform: translateY(-1px); box-shadow: 0 6px 18px rgba(91,155,255,.3); }
-    .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
-    .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
-
-    .hero-visual {
-      position: relative;
-      border-radius: 14px;
-      overflow: hidden;
-      background: radial-gradient(ellipse at 50% 40%, #171a22, #0a0b10);
-      border: 1px solid var(--border);
-      aspect-ratio: 5 / 4;
-    }
-    .hero-visual canvas { width: 100%; height: 100%; display: block; }
-    .hero-caption {
-      position: absolute; left: 0; right: 0; bottom: 0;
-      padding: 10px 14px;
-      font-size: 11.5px;
-      color: var(--text-muted);
-      background: linear-gradient(to top, rgba(10,11,16,.85), transparent);
-      pointer-events: none;
-    }
-    .preview-loading {
-      position: absolute; inset: 0;
-      display: flex; align-items: center; justify-content: center;
-      color: var(--text-muted); font-size: 12px; gap: 8px;
-    }
-    .spinner {
-      width: 16px; height: 16px;
-      border: 2px solid var(--border);
-      border-top-color: var(--accent);
-      border-radius: 50%;
-      animation: spin .7s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    /* ── Three modes: compact, secondary to the hero ──────────────────── */
-    .modes-title {
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: .1em;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      margin-bottom: 16px;
-    }
-    .modes-row {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 12px;
-    }
-    .mode-card {
-      display: flex;
-      flex-direction: column;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 12px;
-      text-decoration: none;
-      color: inherit;
-      cursor: pointer;
-      transition: border-color .15s ease, transform .15s ease;
-    }
-    .mode-card:hover { border-color: var(--accent); transform: translateY(-2px); }
-    .mode-head {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 13px;
-      font-weight: 600;
-      margin-bottom: 10px;
-    }
-    .mode-head .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .mode-visual {
-      position: relative;
-      border-radius: 6px;
-      overflow: hidden;
-      background: #0a0b10;
-      height: 118px;
-    }
-    .mode-visual canvas { width: 100%; height: 100%; display: block; }
-    .mode-card p { font-size: 12px; line-height: 1.45; color: var(--text-muted); margin: 10px 0 0; }
-
-    /* Dendrogram thumbnail: structure only — leaf labels are unreadable at
-       this size and read as clutter, the caption explains it instead. */
-    .mode-visual .dendro-svg { display: block; width: 100%; height: 100%; }
-    .mode-visual .dendro-leaf, .mode-visual .dendro-axis { display: none; }
-    .mode-visual .dendro-cut { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 3 3; }
-
-    /* Matrix preview */
-    .matrix-preview-table { border-collapse: collapse; font-size: 10px; width: 100%; }
-    .matrix-preview-table th, .matrix-preview-table td { padding: 0; }
-    .matrix-preview-table th.row-label {
-      text-align: left; padding: 1px 6px 1px 8px; color: var(--text-muted);
-      font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 84px;
-    }
-    .matrix-preview-table td.cell { width: 13px; height: 13px; }
-
-    /* ── Footer citation ────────────────────────────────────────── */
-    .cite {
-      margin: 56px auto 0;
-      max-width: 760px;
-      border-top: 1px solid var(--border);
-      padding-top: 24px;
-      font-size: 12.5px;
-      line-height: 1.6;
-      color: var(--text-muted);
-    }
-    .cite .cite-title { color: var(--text); font-weight: 600; margin-bottom: 6px; }
-    .cite .cite-authors { margin-bottom: 4px; }
-    .cite .cite-doi a { color: var(--accent); text-decoration: none; }
-    .cite .cite-doi a:hover { text-decoration: underline; }
-    .cite .cite-meta { margin-top: 14px; font-size: 11.5px; }
-    .cite .cite-meta div { margin-bottom: 3px; }
-
-    @media (max-width: 860px) {
-      .hero { grid-template-columns: 1fr; gap: 28px; }
-      .hero-visual { order: -1; aspect-ratio: 4 / 3; }
-      .modes-row { grid-template-columns: 1fr; }
-    }
-  </style>
+  <title>White Matter Tract Explorer — Pestilli Lab</title>
+  <meta name="description" content="Explore how the cortical endpoints of 61 human white matter tracts map onto meta-analytic cognitive topics and canonical functional brain networks. Companion site to Ray et al." />
+  <link rel="icon" href="assets/img/mark.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="style.css" />
 </head>
-<body>
-  <div class="page">
+<body class="landing">
 
-    <section class="hero">
-      <div class="hero-copy">
-        <h1>White Matter Tract Explorer</h1>
-        <p class="tagline">Explore how white matter pathways align with brain function.</p>
+  <header class="site-header">
+    <div class="bar">
+      <a class="site-title" href="index.html" aria-current="page"><img class="mark" src="assets/img/mark.svg" alt="" /><span class="words"><b>White Matter Tract Explorer</b><span>Ray et al. · companion site</span></span></a>
+      <nav class="nav" aria-label="Main">
+        <a href="#how">How it works</a>
+        <a href="#paper">Paper</a>
+        <a href="https://github.com/kimberlylray/ui-wmc-endpoint-decoding" class="ext hide-sm" target="_blank" rel="noopener">Code &amp; data</a>
+        <a class="lab-link hide-sm" href="https://pestillilab.github.io/" target="_blank" rel="noopener" title="A project of the Pestilli Lab, UT Austin"><img src="assets/img/pestilli-lab.svg" alt="Pestilli Lab" /></a>
+        <a class="btn primary small" href="explorer.html">Open the explorer</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ── Hero ─────────────────────────────────────────────────── -->
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <p class="eyebrow">The University of Texas at Austin · Pestilli Lab</p>
+        <h1>Where the brain's <em>white matter</em> meets its function.</h1>
         <p class="lede">
-          Discover the functional profiles of 61 available white matter tracts. Explore their cortical
-          endpoints, associated cognitive processes, and shared organization across canonical brain networks.
+          An interactive companion to <em>Human white matter tracts aligned with canonical functional brain networks</em>.
+          Explore the cortical endpoints of 61 available tracts, the cognitive topics decoded from them,
+          and how they align with the brain's canonical functional networks.
         </p>
-        <div class="cta-row">
-          <a class="btn btn-primary" href="explorer.html">Launch the Explorer →</a>
-          <a class="btn btn-secondary" href="https://doi.org/10.64898/2026.05.20.726546" target="_blank" rel="noopener">Read the preprint</a>
+        <div class="actions">
+          <a class="btn primary" href="explorer.html">Launch the explorer →</a>
+          <a class="btn" href="#how">See how it works</a>
         </div>
       </div>
-      <div class="hero-visual">
-        <canvas id="heroCanvas"></canvas>
-        <div class="preview-loading" id="heroLoading"><div class="spinner"></div>Loading all 61 tracts…</div>
-        <div class="hero-caption">Every tract, colored by the functional cluster it belongs to — drag to rotate</div>
+      <figure class="hero-figure">
+        <div class="hero-visual">
+          <canvas id="heroCanvas"></canvas>
+          <div class="preview-loading" id="heroLoading"><div class="spinner"></div>Loading tract endpoint maps…</div>
+        </div>
+        <figcaption><span>All tracts, colored by functional cluster</span><span>Drag to rotate</span></figcaption>
+        <div class="hero-legend" id="heroLegend"></div>
+      </figure>
+    </div>
+    <div class="wrap">
+      <div class="stats">
+        <div class="stat"><b>61</b><span>white matter tracts, from the 21-tract taxonomy of Bullock et al. (2022)</span></div>
+        <div class="stat"><b>104</b><span>meta-analytic cognitive topics (NeuroQuery LDA), decoded with gradec</span></div>
+        <div class="stat"><b>4</b><span>functional clusters of tracts at the default endpoint threshold (0.15, tree cut at 1.32)</span></div>
+        <div class="stat"><b>6</b><span>canonical network atlases for Dice-based network correspondence</span></div>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <section>
-      <div class="modes-title">Three ways to explore</div>
-      <div class="modes-row">
-        <a class="mode-card" href="explorer.html#cluster">
-          <div class="mode-head"><span class="dot" style="background:#e07b7b"></span>Cluster View</div>
-          <div class="mode-visual" id="dendroPreviewWrap">
-            <div id="dendroPreview">
-              <div class="preview-loading"><div class="spinner"></div></div>
-            </div>
+  <!-- ── How to explore ───────────────────────────────────────── -->
+  <section id="how">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">How to explore</p>
+        <h2>Three steps, from the whole brain to a single topic.</h2>
+        <p class="lede">The explorer is organized as a drill-down. Start broad with the clusters, pick a tract, then dig into the cognitive topics and networks behind it. Every panel is drawn live from the data — nothing is a static figure.</p>
+      </div>
+      <div class="steps">
+        <a class="step accent-yellow" href="explorer.html#cluster">
+          <span class="num">STEP 01</span>
+          <h3>Pick a cluster</h3>
+          <div class="step-visual" id="dendroPreviewWrap" title="Detail of the dendrogram: one cluster's subtree">
+            <div id="dendroPreview"><div class="preview-loading"><div class="spinner"></div></div></div>
           </div>
-          <p>Start here — tracts grouped by shared functional profile.</p>
+          <p>Tracts are grouped by how similar their functional profiles are (hierarchical clustering on the decoding scores). Each cluster shows its combined endpoint map, top topics and network overlap.</p>
+          <span class="more">Open cluster view →</span>
         </a>
-        <a class="mode-card" href="explorer.html#tract" id="tractPreviewCard">
-          <div class="mode-head"><span class="dot" style="background:#5aaccc"></span>Tract View</div>
-          <div class="mode-visual">
+        <a class="step accent-blue" href="explorer.html#tract" id="tractPreviewCard">
+          <span class="num">STEP 02</span>
+          <h3>Choose a tract</h3>
+          <div class="step-visual">
             <canvas id="arcCanvas"></canvas>
             <div class="preview-loading" id="arcLoading"><div class="spinner"></div></div>
           </div>
-          <p>One tract at a time, in full anatomical and functional detail.</p>
+          <p>One tract at a time: its 3D cortical endpoint map in both orientations, and the decoding of the joint map next to each endpoint on its own.</p>
+          <span class="more">Open tract view →</span>
         </a>
-        <a class="mode-card" href="explorer.html#matrix">
-          <div class="mode-head"><span class="dot" style="background:#9b75d4"></span>Full Matrix</div>
-          <div class="mode-visual" id="matrixPreview">
-            <div class="preview-loading"><div class="spinner"></div></div>
-          </div>
-          <p>Every tract × every topic at once, for scanning it all.</p>
+        <a class="step accent-orange" href="explorer.html#tract">
+          <span class="num">STEP 03</span>
+          <h3>Dig into a topic</h3>
+          <div class="step-visual"><div class="topic-preview" id="topicPreview"></div></div>
+          <p>Click any topic bar to see its full 40-term list with LDA weights, switch between functional and all terms, and compare with the radar chart, word cloud and network correspondence.</p>
+          <span class="more">Open the explorer →</span>
         </a>
-      </div>
-    </section>
-
-    <div class="cite">
-      <div class="cite-title">This tool accompanies:</div>
-      <div class="cite-authors">
-        Human white matter tracts aligned with canonical functional brain networks<br />
-        Kimberly L. Ray, Sohmee Kim, Karen Herrera, Suna Guo, Daniela Reyes, Julio A. Peraza,
-        Anna Bostoganashvili, Gabriele Amorosino, Angela R. Laird, Franco Pestilli
-      </div>
-      <div class="cite-doi">doi: <a href="https://doi.org/10.64898/2026.05.20.726546" target="_blank" rel="noopener">10.64898/2026.05.20.726546</a></div>
-      <div class="cite-meta">
-        <div><strong>Competing Interest Statement:</strong> The authors have declared no competing interest.</div>
-        <div><strong>Funder Information:</strong> Wellcome Trust, 226486/Z/22/Z · National Institute of Neurological Disorders and Stroke, UM1NS132207, U24NS140384 · Amazon Web Services, Open Data Sponsorship Program</div>
       </div>
     </div>
-  </div>
+  </section>
+
+  <!-- ── What's inside ────────────────────────────────────────── -->
+  <section>
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">What's inside</p>
+        <h2>Everything in the paper, live in the browser.</h2>
+      </div>
+      <div class="features">
+        <div class="feature">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3a7 7 0 0 0-7 7c0 3 2 5 2 7h10c0-2 2-4 2-7a7 7 0 0 0-7-7z"/><path d="M9 21h6"/></svg></div>
+          <div><h3>3D cortical endpoint maps</h3><p>Per-tract and per-cluster endpoint density on the fsaverage surface, rendered from the GIFTI files. Drag to rotate, scroll to zoom.</p></div>
+        </div>
+        <div class="feature">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg></div>
+          <div><h3>Topic decoding</h3><p>Pearson correlation between each endpoint map and 104 NeuroQuery LDA topics, computed with the <a href="https://gradec.readthedocs.io/" target="_blank" rel="noopener">gradec</a> toolbox (Peraza et al., 2024).</p></div>
+        </div>
+        <div class="feature">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6 4"/></svg></div>
+          <div><h3>Radar charts &amp; word clouds</h3><p>The paper's figures, regenerated live for any tract or cluster, with a switch between functional-only and all terms.</p></div>
+        </div>
+        <div class="feature">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M7 7l4 9M17 7l-4 9M7 6h10"/></svg></div>
+          <div><h3>Network correspondence</h3><p>Dice overlap and spin-test significance against six canonical network atlases, via the <a href="https://www.nature.com/articles/s41467-025-58176-9" target="_blank" rel="noopener">Network Correspondence Toolbox</a> (Kong et al., 2025).</p></div>
+        </div>
+        <div class="feature">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg></div>
+          <div><h3>Full tract × topic matrix</h3><p>All tracts against all 104 topics as one heatmap, ordered by the dendrogram so similar tracts sit together. Click a row to open that tract.</p></div>
+        </div>
+        <div class="feature">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12h16M4 6h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor"/><circle cx="15" cy="12" r="2" fill="currentColor"/><circle cx="7" cy="18" r="2" fill="currentColor"/></svg></div>
+          <div><h3>Endpoint thresholds</h3><p>Switch between the endpoint-density thresholds used in the paper (0.05–0.20) and see how the clustering solution changes.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Paper ────────────────────────────────────────────────── -->
+  <section id="paper">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">The paper</p>
+        <h2>This site accompanies</h2>
+      </div>
+      <div class="paper">
+        <div>
+          <div class="title">Human white matter tracts aligned with canonical functional brain networks</div>
+          <div class="authors">
+            <span class="me">Kimberly L. Ray</span>, Sohmee Kim, Karen Herrera, Suna Guo, Daniela Reyes, Julio A. Peraza,
+            Anna Bostoganashvili, Gabriele Amorosino, Angela R. Laird, <span class="me">Franco Pestilli</span>
+          </div>
+          <div class="venue">Preprint, 2026 · doi:10.64898/2026.05.20.726546</div>
+          <div class="links">
+            <a href="https://doi.org/10.64898/2026.05.20.726546" target="_blank" rel="noopener">Preprint</a>
+            <a href="https://github.com/kimberlylray/ui-wmc-endpoint-decoding" target="_blank" rel="noopener">Code</a>
+            <a href="https://github.com/kimberlylray/ui-wmc-endpoint-decoding/tree/main/testdata" target="_blank" rel="noopener">Data</a>
+            <a href="https://brainlife.io/app/5cc73ef44ed9df00317f6288" target="_blank" rel="noopener">brainlife.io app</a>
+          </div>
+          <h4 class="eyebrow" style="margin-top:28px">Cite</h4>
+          <pre class="cite-block">Ray KL, Kim S, Herrera K, Guo S, Reyes D, Peraza JA, Bostoganashvili A, Amorosino G, Laird AR, Pestilli F (2026). Human white matter tracts aligned with canonical functional brain networks. Preprint. https://doi.org/10.64898/2026.05.20.726546</pre>
+        </div>
+        <div>
+          <div class="facts-box">
+            <h4>Methods in brief</h4>
+            <p>White matter tracts were segmented with the <a href="https://academic.oup.com/cercor/article/32/20/4524/6528900" target="_blank" rel="noopener">Bullock et al. (2022)</a> taxonomy on <a href="https://brainlife.io" target="_blank" rel="noopener">brainlife.io</a>.</p>
+            <p>Tract endpoints were projected to the cortical surface and decoded against NeuroQuery LDA topics with <a href="https://gradec.readthedocs.io/" target="_blank" rel="noopener">gradec</a>.</p>
+            <p>Tracts were clustered by their decoding profiles (complete linkage on 1 − r), and endpoint maps compared with canonical networks using the Network Correspondence Toolbox.</p>
+          </div>
+          <div class="facts-box">
+            <h4>Funding &amp; disclosures</h4>
+            <p>Wellcome Trust 226486/Z/22/Z · NINDS UM1NS132207, U24NS140384 · Amazon Web Services Open Data Sponsorship Program.</p>
+            <p>The authors have declared no competing interest.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <div class="cols">
+        <div>
+          <a class="site-title" href="index.html"><img class="mark" src="assets/img/mark.svg" alt="" /><span class="words"><b>White Matter Tract Explorer</b><span>Ray et al. · companion site</span></span></a>
+          <p class="address">A project of the <a href="https://pestillilab.github.io/" target="_blank" rel="noopener">Pestilli Lab</a>, Department of Psychology, The University of Texas at Austin.<br />Developed by Kim Ray. Supported by brainlife.io.</p>
+          <a class="brand" href="https://pestillilab.github.io/" target="_blank" rel="noopener" style="margin-top:14px"><img src="assets/img/pestilli-lab.svg" alt="Pestilli Lab" /></a>
+        </div>
+        <div>
+          <h4>Explore</h4>
+          <ul>
+            <li><a href="explorer.html#cluster">Cluster view</a></li>
+            <li><a href="explorer.html#tract">Tract view</a></li>
+            <li><a href="explorer.html#matrix">Full matrix</a></li>
+            <li><a href="#paper">The paper</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Links</h4>
+          <ul>
+            <li><a href="https://pestillilab.github.io/" target="_blank" rel="noopener">Pestilli Lab</a></li>
+            <li><a href="https://brainlife.io" target="_blank" rel="noopener">brainlife.io</a></li>
+            <li><a href="https://github.com/kimberlylray/ui-wmc-endpoint-decoding" target="_blank" rel="noopener">GitHub repository</a></li>
+            <li><a href="https://gradec.readthedocs.io/" target="_blank" rel="noopener">gradec</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="fine"><span>© <span id="year"></span> Pestilli Lab · The University of Texas at Austin</span><span>MIT License</span></div>
+    </div>
+  </footer>
 
   <!-- Live previews reuse the explorer's own rendering code (cluster.js, surf3d.js)
        against the default threshold's real data, rather than mocked-up images. -->
@@ -266,24 +214,25 @@
   <script src="surf3d.js"></script>
   <script src="cluster.js"></script>
   <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+
     const PREVIEW_BASE = 'testdata/thr-15_5clusters';
     const PREVIEW_SURF_BASE = 'testdata/thr-15/func';
-    const PREVIEW_CLUSTER_COLORS = ['#e07b7b', '#d4a843', '#6bbf6b', '#5aaccc', '#9b75d4', '#d47a5a', '#3fb8a8'];
+    const PREVIEW_CLUSTER_COLORS = ['#e07b7b', '#d4a843', '#6bbf6b', '#5aaccc', '#9b75d4', '#d47a5a', '#3fb8a8', '#b0c93e', '#e080c0'];
 
     function hexToRgb01(hex) {
       const n = parseInt(hex.slice(1), 16);
       return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
     }
-
-    // "leftArc" -> "Left Arc", "forcepsMajor" -> "Forceps Major" — tract
-    // names are internal identifiers, not meant to be read as-is in a preview.
+    // "leftArc" -> "Left Arc", "forcepsMajor" -> "Forceps Major"
     function humanizeTract(name) {
       return name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase());
     }
+    function topicLabel(raw) { return raw.replace(/^\d+_/, '').replace(/_/g, ' '); }
 
     // Same diverging blue→white→red scale as the explorer's matrix tab.
     function previewScoreColor(v, vmin, vmax) {
-      if (v === null || isNaN(v)) return '#2a2d40';
+      if (v === null || isNaN(v)) return '#143447';
       const mid = (vmin + vmax) / 2;
       let t, r, g, b;
       if (v < mid) {
@@ -319,51 +268,50 @@
         const vmin = allValues[Math.floor(allValues.length * 0.05)] ?? -0.5;
         const vmax = allValues[Math.ceil(allValues.length * 0.95)] ?? 0.5;
 
-        // ── Cluster View preview: dendrogram structure (labels hidden via CSS) ──
+        // Step 1 preview: dendrogram structure (leaf labels hidden via CSS)
         const clustering = computeClustering(matrix, tractOrder, topicCols, 1.32);
         if (clustering) {
           new Vue({
             el: '#dendroPreview',
             data: { clustering: Object.freeze(clustering), colors: PREVIEW_CLUSTER_COLORS },
-            template: `<tract-dendrogram :clustering="clustering" :colors="colors"></tract-dendrogram>`
+            template: `<tract-dendrogram :clustering="clustering" :colors="colors"></tract-dendrogram>`,
+            mounted() {
+              // Thumbnail: zoom into the bottom of the dendrogram (one cluster's
+              // subtree, labels readable) instead of squeezing all leaves in.
+              this.$nextTick(() => {
+                const svg = this.$el.tagName && this.$el.tagName.toLowerCase() === 'svg' ? this.$el : this.$el.querySelector('svg');
+                if (!svg) return;
+                const [, , W, H] = (svg.getAttribute('viewBox') || '0 0 260 700').split(' ').map(Number);
+                const ROW = 13, AXIS = 20, PAD = 6, rows = 12;
+                const y0 = H - AXIS - PAD - rows * ROW;
+                svg.setAttribute('viewBox', `0 ${y0} ${W} ${rows * ROW}`);
+                svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+              });
+            }
           });
           renderHeroBrain(clustering);
         }
 
-        // ── Full Matrix preview: a corner of the real array, humanized labels ──
-        const previewTracts = tractOrder.slice(0, 9);
-        const previewTopics = topicCols.slice(0, 14);
-        const table = document.createElement('table');
-        table.className = 'matrix-preview-table';
-        previewTracts.forEach(t => {
-          const tr = document.createElement('tr');
-          const th = document.createElement('th');
-          th.className = 'row-label'; th.textContent = humanizeTract(t); th.title = t;
-          tr.appendChild(th);
-          previewTopics.forEach(k => {
-            const td = document.createElement('td');
-            td.className = 'cell';
-            td.style.background = previewScoreColor(matrix[t][k], vmin, vmax);
-            td.title = `${humanizeTract(t)} — ${k}`;
-            tr.appendChild(td);
-          });
-          table.appendChild(tr);
-        });
-        const matrixHost = document.getElementById('matrixPreview');
-        matrixHost.innerHTML = '';
-        matrixHost.appendChild(table);
+        // Step 3 preview: top topics of the arcuate fasciculus, real values
+        const row = matrix['leftArc'];
+        const host = document.getElementById('topicPreview');
+        if (row && host) {
+          const top = Object.entries(row).filter(([, v]) => v !== null && !isNaN(v))
+            .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 6);
+          const max = Math.max(...top.map(([, v]) => Math.abs(v))) || 1;
+          host.innerHTML = top.map(([k, v]) =>
+            `<div class="row"><span title="${k}">${topicLabel(k)}</span><i style="width:${(Math.abs(v) / max) * 100}%;background:${v >= 0 ? '#3fd2ff' : '#e57536'}"></i></div>`
+          ).join('');
+        }
       },
       error() {
         document.getElementById('dendroPreview').innerHTML = '';
-        document.getElementById('matrixPreview').innerHTML = '';
       }
     });
 
     // ── Hero: every tract on the full brain, colored by its cluster ──────
-    // A "winner takes all" per-vertex merge: for each cortical vertex, find
-    // whichever cluster's (own-normalized) endpoint density is highest there,
-    // and color it with that cluster's color at that intensity. This is the
-    // actual scientific payoff rendered directly — not a mockup of it.
+    // "Winner takes all" per vertex: whichever cluster's (own-normalized)
+    // endpoint density is highest there gets to color the vertex.
     function buildClusterGeometry(mesh, ownerCluster, ownerVal, colorTable) {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
@@ -373,7 +321,7 @@
       const colors = new Float32Array(n * 3);
       for (let i = 0; i < n; i++) {
         const isCortex = !mesh.roi || mesh.roi[i] > 0;
-        if (!isCortex) { colors[i*3]=0.14; colors[i*3+1]=0.15; colors[i*3+2]=0.19; continue; }
+        if (!isCortex) { colors[i*3]=0.10; colors[i*3+1]=0.16; colors[i*3+2]=0.22; continue; }
         let g = 0.58;
         if (mesh.thickness) { const t = Math.max(0, Math.min(1, mesh.thickness[i] / 4.5)); g = 0.64 - 0.22 * t; }
         let r = g, gg = g, b = g;
@@ -406,21 +354,21 @@
       const clusterIds = Object.keys(byCluster).map(Number).sort((a, b) => a - b);
       const colorTable = {};
       clusterIds.forEach(cid => { colorTable[cid] = hexToRgb01(PREVIEW_CLUSTER_COLORS[(cid - 1) % PREVIEW_CLUSTER_COLORS.length]); });
+      document.getElementById('heroLegend').innerHTML = clusterIds.map(cid =>
+        `<span><i style="background:${PREVIEW_CLUSTER_COLORS[(cid - 1) % PREVIEW_CLUSTER_COLORS.length]}"></i>Cluster ${cid} · ${byCluster[cid].length}</span>`
+      ).join('');
 
       const manifest = await loadSurfManifest(surfBase).catch(() => null);
-
       try {
         for (const hemi of ['lh', 'rh']) {
           const mesh = await loadHemiMesh(meshBase, hemi);
           const n = mesh.nVerts;
-
           const jobs = [];
           clusterIds.forEach(cid => byCluster[cid].forEach(tract => ['RAS', 'LPI'].forEach(orient => {
             if (manifest && !(manifest[tract] && manifest[tract][hemi] && manifest[tract][hemi].includes(orient))) return;
             jobs.push({ cid, promise: fetchGifti(`${surfBase}/${hemi}.${tract}.${orient}.func.gii`).catch(() => null) });
           })));
           const results = await Promise.all(jobs.map(j => j.promise));
-
           const clusterOverlay = {};
           jobs.forEach((job, i) => {
             const arrays = results[i];
@@ -429,7 +377,6 @@
             const ov = clusterOverlay[job.cid] || (clusterOverlay[job.cid] = new Float32Array(n));
             for (let k = 0; k < n; k++) if (d[k] > ov[k]) ov[k] = d[k];
           });
-
           const ownerVal = new Float32Array(n);
           const ownerCluster = new Int16Array(n).fill(-1);
           clusterIds.forEach(cid => {
@@ -443,7 +390,6 @@
               if (t > ownerVal[k]) { ownerVal[k] = t; ownerCluster[k] = cid; }
             }
           });
-
           scene.setHemiMesh(hemi, buildClusterGeometry(mesh, ownerCluster, ownerVal, colorTable));
         }
         scene.setDefaultView(['lh', 'rh']);
@@ -453,13 +399,8 @@
       }
     }
 
-    // The whole card is a link to explorer.html#tract, but the canvas is
-    // also a drag-to-rotate 3D view — suppress navigation only when the
-    // pointer actually moved (a rotate gesture), so a plain click still
-    // navigates like the other two cards, but rotating the brain doesn't.
-    // Same guard applies to the hero visual, which isn't a link itself but
-    // sits next to the CTA buttons — this keeps drag gestures from bubbling
-    // into anything unexpected.
+    // The step card is a link, but its canvas is also a drag-to-rotate 3D
+    // view — only suppress navigation when the pointer actually moved.
     function guardCardDrag(cardSelector, canvasSelector) {
       const card = document.querySelector(cardSelector);
       const canvas = document.querySelector(canvasSelector);
@@ -476,30 +417,21 @@
     }
     guardCardDrag('#tractPreviewCard', '#arcCanvas');
 
-    // ── Tract View preview: live 3D Arcuate Fasciculus endpoint map ──
-    // Both hemispheres (leftArc + rightArc), LPI+RAS combined via per-vertex
-    // max — the same merge the explorer uses for a cluster's combined map.
+    // Step 2 preview: live 3D arcuate fasciculus endpoint map (both hemispheres)
     (function renderArcPreview() {
       const canvas = document.getElementById('arcCanvas');
       const loading = document.getElementById('arcLoading');
       const meshBase = 'assets/surf/mesh';
       const surfBase = PREVIEW_SURF_BASE;
       const parts = [['lh', 'leftArc'], ['rh', 'rightArc']];
-
       let scene;
-      try {
-        scene = new SurfaceScene(canvas);
-      } catch (e) {
-        loading.textContent = '3D preview unavailable in this browser';
-        return;
-      }
+      try { scene = new SurfaceScene(canvas); }
+      catch (e) { loading.textContent = '3D preview unavailable in this browser'; return; }
 
       Promise.all(parts.map(([hemi, tract]) =>
         Promise.all([
           loadHemiMesh(meshBase, hemi),
-          Promise.all(['RAS', 'LPI'].map(o =>
-            fetchGifti(`${surfBase}/${hemi}.${tract}.${o}.func.gii`).catch(() => null)
-          ))
+          Promise.all(['RAS', 'LPI'].map(o => fetchGifti(`${surfBase}/${hemi}.${tract}.${o}.func.gii`).catch(() => null)))
         ]).then(([mesh, perOrient]) => {
           let overlay = null;
           perOrient.forEach(arrays => {

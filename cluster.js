@@ -112,7 +112,12 @@ if (typeof Vue !== 'undefined') Vue.component('tract-dendrogram', {
     clustering:      { type: Object, default: null },
     colors:          { type: Array, required: true },
     selectedCluster: { type: Number, default: null },
-    selectedTract:   { type: String, default: null }
+    selectedTract:   { type: String, default: null },
+    labels:          { type: Object, default: null },   // { rawName: display label }
+    highlight:       { type: Array, default: null },    // names to keep bright (search); null = all
+    rowHeight:       { type: Number, default: 13 },
+    width:           { type: Number, default: 260 },
+    treeWidth:       { type: Number, default: 110 }     // horizontal room for the branches
   },
   template: `
   <svg v-if="clustering" class="dendro-svg" :viewBox="'0 0 ' + W + ' ' + H" role="img" aria-label="Tract clustering dendrogram">
@@ -127,10 +132,13 @@ if (typeof Vue !== 'undefined') Vue.component('tract-dendrogram', {
           class="dendro-hit" @click="$emit('select-cluster', l.cluster)">
       <title>Cluster {{ l.cluster }} — click to view</title>
     </path>
-    <text v-for="lf in leafLabels" :key="lf.name" class="dendro-leaf"
-          :class="{ active: lf.name === selectedTract, dim: selectedCluster && lf.cluster !== selectedCluster }"
-          :x="X1 + 4" :y="lf.y" dy="0.35em" :fill="lf.color"
-          @click="$emit('select-tract', lf.name)">{{ lf.name }}<title>{{ lf.name }} — cluster {{ lf.cluster }}</title></text>
+    <g v-for="lf in leafLabels" :key="lf.name" class="dendro-leaf"
+       :class="{ active: lf.name === selectedTract, dim: isDim(lf), match: highlight && highlight.includes(lf.name) }"
+       @click="$emit('select-tract', lf.name)" role="button" tabindex="0" @keydown.enter.space.prevent="$emit('select-tract', lf.name)">
+      <rect class="dendro-leaf-hit" :x="X1 + 1" :y="lf.y - ROW / 2" :width="W - X1 - 2" :height="ROW" rx="3" />
+      <circle :cx="X1 + 8" :cy="lf.y" r="3" :fill="lf.color" />
+      <text :x="X1 + 16" :y="lf.y" dy="0.35em" :fill="lf.color">{{ labelOf(lf.name) }}<title>{{ lf.name }} — cluster {{ lf.cluster }}</title></text>
+    </g>
     <g class="dendro-axis">
       <line :x1="X0" :x2="X1" :y1="H - AXIS" :y2="H - AXIS" />
       <g v-for="t in ticks" :key="t">
@@ -139,8 +147,11 @@ if (typeof Vue !== 'undefined') Vue.component('tract-dendrogram', {
       </g>
     </g>
   </svg>`,
-  data() { return { W: 260, X0: 6, X1: 116, PAD: 6, ROW: 13, AXIS: 20 }; },
+  data() { return { X0: 6, PAD: 6, AXIS: 20 }; },
   computed: {
+    W() { return this.width; },
+    X1() { return this.treeWidth; },
+    ROW() { return this.rowHeight; },
     H() { return this.clustering ? this.PAD * 2 + this.clustering.n * this.ROW + this.AXIS : 0; },
     hMax() {
       const Z = this.clustering.Z;
@@ -189,6 +200,12 @@ if (typeof Vue !== 'undefined') Vue.component('tract-dendrogram', {
     }
   },
   methods: {
+    labelOf(name) { return (this.labels && this.labels[name]) || name; },
+    // Dim leaves outside the selected cluster, or outside the search matches.
+    isDim(lf) {
+      if (this.highlight) return !this.highlight.includes(lf.name);
+      return !!(this.selectedCluster && lf.cluster !== this.selectedCluster);
+    },
     xOf(v) { return this.X1 - (this.X1 - this.X0) * v / this.hMax; },
     colorOf(id) { return this.colors[(id - 1) % this.colors.length]; }
   }
