@@ -4,3 +4,5 @@ node_modules/
 __pycache__/
 **/__pycache__/
 server/.venv/
+# dev-only link created by `npm start`; CI copies data/ into the site instead
+static/data

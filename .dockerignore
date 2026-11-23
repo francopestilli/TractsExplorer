@@ -1,0 +1,16 @@
+.git
+.gitignore
+.DS_Store
+**/.DS_Store
+**/__pycache__/
+**/*.py[cod]
+node_modules/
+server/.venv/
+tests/
+docs/
+scripts/
+static/
+data/thresholds/**/func/
+data/thresholds/**/images/
+data/surf/
+data/atlases/

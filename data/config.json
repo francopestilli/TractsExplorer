@@ -1,0 +1,12 @@
+{
+  "_comment": "Shared by explorer.html and the Python API. thresholds: folder -> {label: shown in the threshold selector; the folder is a subfolder of thresholds/ holding matrix.csv (tract x topic decoding, joint LPI + RAS), matrix_RAS.csv / matrix_LPI.csv (each endpoint on its own), cluster-matrix.csv (cluster x topic) and func/ (per-tract endpoint maps '{lh|rh}.{tract}.{LPI|RAS}.func.gii'); func: another threshold whose func/ maps this one reuses; cut: dendrogram distance cut for live clustering; noClusters: true hides the Cluster step; value: numeric threshold}. defaultThreshold: a folder. Labels show complete tracts in the dendrogram / map-complete cohort size. The rest of data/ is laid out as in data/README.md.",
+  "thresholds": {
+    "thr-05": { "label": "0.05 (55 in tree)", "cut": 1.32, "value": 0.05 },
+    "thr-10": { "label": "0.10 (51 in tree)", "cut": 1.32, "value": 0.10 },
+    "thr-15": { "label": "0.15 full (46 in tree)", "cut": 1.32, "value": 0.15 },
+    "thr-15_5clusters": { "label": "0.15 fixed 43 (43 in tree)", "func": "thr-15", "cut": 1.32, "value": 0.15 },
+    "thr-20": { "label": "0.20 (43 in tree)", "cut": 1.32, "value": 0.20 }
+  },
+  "defaultThreshold": "thr-15",
+  "skai": { "url": "", "loginUrl": "https://brainlife.io/auth/" }
+}

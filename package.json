@@ -1,13 +1,21 @@
 {
-  "name": "ui-wmc-endpoint-decoding",
+  "name": "tracts-explorer",
   "version": "1.0.0",
+  "private": true,
   "description": "Interactive visualizer for white matter tract endpoint decoding (Neurosynth meta-analytic topics)",
-  "main": "index.html",
   "scripts": {
-    "start": "npx serve .",
-    "lint": "echo \"No lint step configured\""
+    "prestart": "ln -sfn ../data static/data",
+    "start": "serve -c ../serve.json static",
+    "test": "node --test tests/static/*.test.mjs"
   },
-  "keywords": ["brainlife", "white matter", "tractography", "neurosynth", "decoding", "visualization"],
+  "keywords": [
+    "brainlife",
+    "white matter",
+    "tractography",
+    "neurosynth",
+    "decoding",
+    "visualization"
+  ],
   "author": "Kim Ray <kimray@utexas.edu>",
   "license": "MIT",
   "devDependencies": {

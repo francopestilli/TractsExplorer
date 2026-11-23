@@ -2,7 +2,7 @@
 """
 export_network_atlases.py — network atlases for the brain workspace
 
-Builds assets/atlases/<CODE>.json for each reference atlas of the Network
+Builds data/atlases/<CODE>.json for each reference atlas of the Network
 Correspondence Toolbox (Kong et al. 2025) used in the paper, so the website
 can paint canonical functional networks on the same fsaverage surface it
 draws tract endpoints on.
@@ -40,12 +40,12 @@ import scipy.io as sio
 from scipy.spatial import cKDTree
 
 THIS = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(THIS)
+ROOT = os.path.join(os.path.dirname(THIS), 'data')
 SPHERES = {
-    'lh': os.path.join(ROOT, 'assets/TractEndpointImages/neuromaps/atlases/fsaverage/tpl-fsaverage_den-164k_hemi-L_sphere.surf.gii'),
-    'rh': os.path.join(ROOT, 'assets/TractEndpointImages/neuromaps/atlases/fsaverage/tpl-fsaverage_den-164k_hemi-R_sphere.surf.gii'),
+    'lh': os.path.join(THIS, 'data', 'tpl-fsaverage_den-164k_hemi-L_sphere.surf.gii'),
+    'rh': os.path.join(THIS, 'data', 'tpl-fsaverage_den-164k_hemi-R_sphere.surf.gii'),
 }
-OUT = os.path.join(ROOT, 'assets/atlases')
+OUT = os.path.join(ROOT, 'atlases')
 FS6 = 40962
 
 ATLASES = {

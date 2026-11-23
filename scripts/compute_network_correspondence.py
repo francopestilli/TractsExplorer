@@ -8,7 +8,7 @@ For every tract and every cluster at every threshold, computes Dice overlap +
 spin-test p-value against canonical functional network atlases (Yeo 7 / Yeo
 17, "TY7"/"TY17"), and writes one long-form CSV per threshold:
 
-    testdata/<threshold>/network-correspondence.csv
+    data/thresholds/<threshold>/network-correspondence.csv
     columns: entity_type, entity_id, group, name, dice, p_value,
              max_possible_dice
 
@@ -50,7 +50,7 @@ import cbig_network_correspondence as cnc
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(THIS_DIR)
-TESTDATA = os.path.join(REPO_ROOT, "testdata")
+THRESHOLDS_DIR = os.path.join(REPO_ROOT, "data", "thresholds")
 
 # Atlas codes to compute against — the reference atlases used in the paper:
 # EG17 (Gordon 17-network), TY7 (Yeo 7-network), AS200Y17 (Schaefer 200,
@@ -63,19 +63,11 @@ ATLASES = ["EG17", "TY7", "AS200Y17", "MG360J12", "XS268_8", "EG286_12"]
 FSAVERAGE6_N = 40962  # vertices per hemisphere
 NCT_THRESHOLD = 0.0001
 
-# Must match config.thresholds in explorer.html exactly — `cut` decides
-# cluster membership (and therefore cluster count), and `func_dir` overrides
-# where this threshold's endpoint maps live (thr-15_5clusters has its own
-# matrix.csv/cut but reuses thr-15's func.gii files, same as surfBase does
-# on the website). Both duplicated here because the offline script can't
-# read explorer.html's JS.
-THRESHOLDS = {
-    "thr-05": {"cut": 1.32},
-    "thr-10": {"cut": 1.32},
-    "thr-15": {"cut": 1.32},
-    "thr-15_5clusters": {"cut": 1.32, "func_dir": "thr-15"},
-    "thr-20": {"cut": 1.32},
-}
+with open(os.path.join(REPO_ROOT, "data", "config.json")) as f:
+    THRESHOLDS = {
+        folder: {"cut": t.get("cut", 1.0), "func_folder": t.get("func", folder)}
+        for folder, t in json.load(f)["thresholds"].items()
+    }
 
 
 def load_hemi_combined(func_dir, hemi, tract):
@@ -319,8 +311,8 @@ def main():
     for folder, cfg in THRESHOLDS.items():
         if args.threshold and folder != args.threshold:
             continue
-        thr_dir = os.path.join(TESTDATA, folder)
-        func_dir = os.path.join(TESTDATA, cfg.get("func_dir", folder), "func")
+        thr_dir = os.path.join(THRESHOLDS_DIR, folder)
+        func_dir = os.path.join(THRESHOLDS_DIR, cfg["func_folder"], "func")
         matrix_csv = os.path.join(thr_dir, "matrix.csv")
         if not os.path.isdir(func_dir) or not os.path.isfile(matrix_csv):
             print(f"[{folder}] skip — missing func/ or matrix.csv")

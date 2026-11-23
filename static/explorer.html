@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Explorer — White Matter Tract Explorer</title>
+  <meta name="description" content="Interactive explorer of white matter tract endpoint decoding: clusters, tracts, cognitive topics and network correspondence." />
+  <link rel="icon" href="assets/img/mark.svg" type="image/svg+xml" />
+  <!-- Libraries: Vue 2 (UI), PapaParse (CSV), pako (gzip'd GIFTI data), three.js (3D surfaces) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/2.7.14/vue.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="explorer">
+<div id="app" v-cloak>
+  <div v-if="error" class="error-msg">{{ error }}</div>
+  <div v-else-if="skaiOn" class="te-layout">
+    <skai-panel :config="config"></skai-panel>
+    <wmc-viewer :config="config" :tract-names="tractNames"></wmc-viewer>
+  </div>
+  <wmc-viewer v-else :config="config" :tract-names="tractNames"></wmc-viewer>
+</div>
+
+<script src="surf3d.js"></script>   <!-- GIFTI parsing + 3D cortical endpoint maps -->
+<script src="charts.js"></script>   <!-- radar chart + word cloud -->
+<script src="cluster.js"></script>  <!-- hierarchical clustering + dendrogram -->
+<script src="view-state.js"></script>  <!-- view links: parse / build explorer URLs -->
+<script src="viewer.js"></script>   <!-- main viewer component -->
+<script src="skai-client.js"></script>  <!-- SKAI (brainlife.io assistant) client -->
+<script src="skai-panel.js"></script>   <!-- SKAI side panel (only when config.skai.url is set) -->
+<script>
+  function getJson(url) {
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error(url + ': HTTP ' + r.status);
+      return r.json();
+    });
+  }
+  Promise.all([getJson('data/config.json'), getJson('data/lookups.json')])
+    .then(function (res) {
+      var config = res[0], lookups = res[1];
+      TEView.init(lookups.view);
+      new Vue({
+        el: '#app',
+        data: { error: null, config: config, tractNames: lookups.tractNames },
+        computed: { skaiOn: function () { return !!(this.config.skai && this.config.skai.url); } }
+      });
+    })
+    .catch(function (e) {
+      new Vue({ el: '#app', data: { error: 'Could not load the explorer settings: ' + e.message, config: null, skaiOn: false } });
+    });
+</script>
+</body>
+</html>

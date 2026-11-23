@@ -26,7 +26,7 @@ import cbig_network_correspondence as cnc  # noqa: E402
 NCT_HEMI_VERTICES = 40962
 FSAVERAGE_HEMI_VERTICES = 163842
 NCT_THRESHOLD = 0.0001
-ENDPOINT_DIR = Path(nct_base.TESTDATA) / "thr-15" / "func"
+ENDPOINT_DIR = Path(nct_base.THRESHOLDS_DIR) / "thr-15" / "func"
 
 
 def load_cluster_assignments() -> dict[int, list[str]]:

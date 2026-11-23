@@ -1,0 +1,5 @@
+cbig_network_correspondence
+nibabel
+numpy
+pandas
+scipy

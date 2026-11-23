@@ -123,7 +123,7 @@ def validate_maps(
         / "cortexmap"
         / "func"
     )
-    website_func_dir = REPO_ROOT / "testdata" / surface_folder / "func"
+    website_func_dir = REPO_ROOT / "data" / "thresholds" / surface_folder / "func"
     comparisons = 0
     for tract in members:
         for hemi, orientation in required_maps(tract):
@@ -166,8 +166,9 @@ def copy_mode_results(
     copies = {
         f"cluster_assignments_{mode}_cut1-32.csv": "cluster-assignments_joint.csv",
         f"cluster_decoding_{mode}_cut1-32.csv": "cluster-matrix.csv",
-        f"dendrogram_{mode}_cut1-32.png": "dendrogram_joint.png",
+        f"dendrogram_{mode}_cut1-32.png": "images/dendrogram_joint.png",
     }
+    (destination_dir / "images").mkdir(exist_ok=True)
     for source_name, destination_name in copies.items():
         source = source_dir / source_name
         if not source.is_file():
@@ -195,7 +196,7 @@ def publish_threshold(
     )
 
     source_dir = threshold_output_dir(cohort, threshold)
-    destination_dir = REPO_ROOT / "testdata" / target_folder
+    destination_dir = REPO_ROOT / "data" / "thresholds" / target_folder
     for mode in MODES:
         matrix_fields, matrix_rows = read_csv(
             source_dir / f"tract_decoding_{mode}.csv"
@@ -253,8 +254,8 @@ def publish_threshold(
             (destination_dir / filename).unlink(missing_ok=True)
 
     shutil.copyfile(
-        destination_dir / "dendrogram_joint.png",
-        destination_dir / "dendro.png",
+        destination_dir / "images" / "dendrogram_joint.png",
+        destination_dir / "images" / "dendro.png",
     )
 
     nct_path = destination_dir / "network-correspondence.csv"
@@ -291,7 +292,7 @@ def main() -> None:
 
     for threshold, cohort, folder, tract_count, map_count in reports:
         print(
-            f"{threshold} {cohort} -> testdata/{folder}: "
+            f"{threshold} {cohort} -> data/thresholds/{folder}: "
             f"{tract_count} tracts, {map_count} verified maps"
         )
 

@@ -1,0 +1,86 @@
+{
+  "_comment": "Lookup tables shared by the explorer (static/) and the API (server/). tractNames: display name for each tract id without its left/right prefix, lower-cased (ids not listed are shown by splitting camelCase). view: the explorer's view-link query parameters - keys in query-string order, and the allowed values of the enumerated ones.",
+  "tractNames": {
+    "arc": "Arcuate",
+    "parc": "Posterior arcuate",
+    "slf1and2": "SLF I & II",
+    "slf3": "SLF III",
+    "ifof": "IFOF",
+    "ilf": "ILF",
+    "vof": "VOF",
+    "uncinate": "Uncinate",
+    "cingulum": "Cingulum",
+    "cst": "Corticospinal",
+    "aslant": "Frontal aslant",
+    "tpc": "Temporo-parietal connection",
+    "mdlfang": "MdLF (angular)",
+    "mdlfspl": "MdLF (SPL)",
+    "inferioropticradiation": "Inferior optic radiation",
+    "superioropticradiation": "Superior optic radiation",
+    "forcepsmajor": "Forceps major",
+    "forcepsminor": "Forceps minor",
+    "anteriofrontalcc": "Anterior frontal CC",
+    "middlefrontalcc": "Middle frontal CC",
+    "parietalcc": "Parietal CC",
+    "frontothalamic": "Fronto-thalamic",
+    "parietothalamic": "Parieto-thalamic",
+    "temporothalamic": "Temporo-thalamic",
+    "motorthalamic": "Motor-thalamic",
+    "spinothalamic": "Spino-thalamic",
+    "anteriofrontocerebellar": "Anterior fronto-cerebellar",
+    "contraanteriofrontocerebellar": "Contralateral anterior fronto-cerebellar",
+    "motorcerebellar": "Motor-cerebellar",
+    "contramotorcerebellar": "Contralateral motor-cerebellar",
+    "parietocerebellar": "Parieto-cerebellar",
+    "occipitocerebellar": "Occipito-cerebellar",
+    "thalamicocerebellar": "Thalamo-cerebellar"
+  },
+  "view": {
+    "keys": [
+      "thr",
+      "tab",
+      "cluster",
+      "tract",
+      "topic",
+      "section",
+      "map",
+      "hemi",
+      "view",
+      "atlas"
+    ],
+    "enums": {
+      "tab": [
+        "cluster",
+        "tract",
+        "matrix"
+      ],
+      "section": [
+        "map",
+        "topics",
+        "charts",
+        "networks"
+      ],
+      "map": [
+        "both",
+        "RAS",
+        "LPI",
+        "bytract"
+      ],
+      "hemi": [
+        "both",
+        "lh",
+        "rh"
+      ],
+      "view": [
+        "dorsal",
+        "ventral",
+        "anterior",
+        "posterior",
+        "lateral-left",
+        "lateral-right",
+        "medial-left",
+        "medial-right"
+      ]
+    }
+  }
+}
