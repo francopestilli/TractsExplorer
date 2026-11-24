@@ -44,3 +44,23 @@ test('fromUrl', () => {
   assert.equal(TEView.fromUrl('https://brainlife.io/tractexplorer/index.html', base, cfg), null);
   assert.equal(TEView.fromUrl('not a url', base, cfg), null);
 });
+
+test('hash carries view params; query wins per key', () => {
+  assert.deepEqual(TEView.parse('?embed=1', '#thr=thr-10&tab=tract&tract=leftArc', cfg),
+    { thr: 'thr-10', tab: 'tract', tract: 'leftArc' });
+  assert.equal(TEView.parse('?tract=rightArc', '#tract=leftArc', cfg).tract, 'rightArc');
+  assert.deepEqual(TEView.parse('', '#tract=<b>&cluster=-1', cfg), {});
+  assert.deepEqual(TEView.parse('', '#matrix', cfg), { tab: 'matrix' });   // landing cards
+});
+
+test('toHash / isEmbed', () => {
+  assert.equal(TEView.toHash({ tab: 'tract', tract: 'leftArc', atlas: 'TY7' }), '#tab=tract&tract=leftArc&atlas=TY7');
+  assert.equal(TEView.toHash({}), '');
+  assert.equal(TEView.isEmbed('?embed=1'), true);
+  assert.equal(TEView.isEmbed('?thr=thr-15'), false);
+});
+
+test('fromUrl reads panel links', () => {
+  const base = 'https://connects.brainlife.io/tractsexplorer/explorer.html';
+  assert.deepEqual(TEView.fromUrl(base + '?embed=1#cluster=2', base, cfg), { cluster: 2 });
+});
