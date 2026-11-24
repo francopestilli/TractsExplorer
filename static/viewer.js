@@ -292,7 +292,7 @@ Vue.component('wmc-viewer', {
         <button class="icon-btn sidebar-toggle" @click="sidebarOpen = !sidebarOpen" aria-label="Toggle tract list">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
         </button>
-        <a class="site-title" href="index.html" title="Back to the overview"><img class="mark" src="assets/img/mark.svg" alt="" /><span class="words"><b>White Matter Tract Explorer</b><span>Ray et al. · companion site</span></span></a>
+        <a class="site-title" :href="embed ? null : 'index.html'" :title="embed ? null : 'Back to the overview'"><img class="mark" src="assets/img/mark.svg" alt="" /><span class="words"><b>White Matter Tract Explorer</b><span>Ray et al. · companion site</span></span></a>
         <nav class="nav">
           <div class="control-group" data-tour="threshold" title="Endpoint-density threshold used to define tract endpoints (and the number of clusters it yields)">
             <label>Threshold</label>
@@ -842,6 +842,7 @@ ${SURF_PANEL_TEMPLATE}
 
   data() {
     return {
+      embed: TEView.isEmbed(location.search),   // inside SKAI's side panel (explorer.html?embed=1#…)
       tab: 'cluster',
       loading: true,
       thresholdFolder: this.config.defaultThreshold || Object.keys(this.config.thresholds)[0],
@@ -1159,6 +1160,12 @@ ${SURF_PANEL_TEMPLATE}
       this.tab = 'tract';
     }
     window.teExplorer = this;   // for the SKAI panel: applyView() / currentView
+    // Inside SKAI's side panel (explorer.html?embed=1#…) SKAI moves the view by
+    // changing the part after '#', which doesn't reload the page.
+    if (this.embed) {
+      this._onHash = () => this.applyView(TEView.parse('', location.hash, this.config), { whole: true });
+      window.addEventListener('hashchange', this._onHash);
+    }
     this.loadData();
     this.loadTopicTerms();
     // Open the linked view once the data is in, then keep the address bar in sync.
@@ -1168,6 +1175,7 @@ ${SURF_PANEL_TEMPLATE}
   beforeDestroy() {
     this.disposeSurfScenes();
     if (this._tourKey) { window.removeEventListener('keydown', this._tourKey); window.removeEventListener('resize', this._tourResize); }
+    if (this._onHash) window.removeEventListener('hashchange', this._onHash);
   },
 
   updated() { if (!this._secObsQueued) { this._secObsQueued = true; this.$nextTick(() => { this._secObsQueued = false; this.observeSections(); }); } },
@@ -1212,7 +1220,9 @@ ${SURF_PANEL_TEMPLATE}
     // Open a view described by view-link parameters (TEView.parse output).
     // Safe at any time: waits for a threshold that is still loading, the
     // latest call wins, and anything this threshold's data lacks is skipped.
-    async applyView(p) {
+    // whole: p is the entire view (SKAI's panel links), so settings it leaves
+    // out go back to their defaults instead of staying as they are.
+    async applyView(p, { whole = false } = {}) {
       p = p || {};
       const token = (this._applyToken = (this._applyToken || 0) + 1);
       const live = () => token === this._applyToken;
@@ -1236,7 +1246,7 @@ ${SURF_PANEL_TEMPLATE}
           const topic = this.topics.find(t => { const m = /^(\d+)_/.exec(t); return m && Number(m[1]) === p.topic; });
           if (topic) this.openTopic(topic);
         }
-        if (p.map) this.setBrainMode(p.map);
+        if (p.map || whole) this.setBrainMode(p.map || 'both');
         if (p.view || p.hemi) {
           await this.$nextTick();   // surfTracts now reflects the new selection
           if (!live()) return;
@@ -1247,11 +1257,12 @@ ${SURF_PANEL_TEMPLATE}
           const key = this.tab + '|' + this.surfTracts.join(',');
           if (this._brainKey !== key) this._pendingBrainView = { key, view: p.view, hemi: p.hemi };
         }
-        if (p.atlas || p.section === 'networks') {
+        if (p.atlas || p.section === 'networks' || whole) {
           await this._networksReady;   // atlases come from network-correspondence.csv
           if (!live()) return;
         }
         if (p.atlas && this.networkAtlases.includes(p.atlas)) this.networkAtlas = p.atlas;
+        else if (whole && !p.atlas) this.networkAtlas = this.networkAtlases[0] || null;
         if (p.section) this.goToSection(p.section);
       } catch (err) {
         console.error('Could not open view:', err);
@@ -1267,10 +1278,14 @@ ${SURF_PANEL_TEMPLATE}
     // Mirror currentView in the address bar without adding history entries.
     syncUrl() {
       if (!this._urlReady || this.loading) return;
-      const q = TEView.toQuery(this.currentView);
-      if (q === location.search && !location.hash) return;
+      // Embedded: keep ?embed=1 and mirror the view after '#', so SKAI's next
+      // change to a different view registers as a hash change.
+      const url = this.embed
+        ? location.pathname + location.search + TEView.toHash(this.currentView)
+        : location.pathname + TEView.toQuery(this.currentView);
+      if (url === location.pathname + location.search + location.hash) return;
       // Safari throws once replaceState is called too often; the next change syncs again.
-      try { history.replaceState(null, '', location.pathname + q); } catch (e) {}
+      try { history.replaceState(null, '', url); } catch (e) {}
     },
 
     // ── Intro tour ────────────────────────────────────────────────
@@ -1337,7 +1352,7 @@ ${SURF_PANEL_TEMPLATE}
           // (not when arriving via a link to a specific view).
           if (!this._tourOffered) {
             this._tourOffered = true;
-            if (readPref('wmc.tourDone') !== '1' && !location.hash && !location.search) {
+            if (!this.embed && readPref('wmc.tourDone') !== '1' && !location.hash && !location.search) {
               setTimeout(() => { if (!this.tour.active) this.startTour(); }, 900);
             }
           }

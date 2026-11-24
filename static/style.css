@@ -813,3 +813,11 @@ table.matrix-table td.cell:hover { outline: 2px solid var(--accent); outline-off
   }
   .skai-panel.drawer.collapsed .skai-rail-btn span[aria-hidden] { transform: none; }
 }
+
+/* Embedded in SKAI's side panel (explorer.html?embed=1): a slimmer header that
+   keeps the tract list toggle and the threshold. */
+body.embed .site-header .site-title .words,
+body.embed .site-header .lab-link,
+body.embed .site-header .stat-chip,
+body.embed .site-header [data-tour="tour-btn"] { display: none; }
+body.embed .site-header.wide .bar { padding: 0 10px; gap: 10px; }

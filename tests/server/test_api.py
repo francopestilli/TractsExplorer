@@ -143,3 +143,23 @@ def test_root_path_prefix():
     assert c.get("/tractexplorer/thresholds").status_code == 200
     assert c.get("/tractexplorer/explorer.html").status_code == 404
     assert c.get("/tractexplorer").status_code == 404
+
+
+def test_panel_url(client):
+    body = client.get("/view-url?thr=0.10&cluster=2&atlas=TY7").json()
+    assert body["view_url"] == PUB + "/explorer.html?thr=thr-10&cluster=2&atlas=TY7"
+    assert body["panel_url"] == PUB + "/explorer.html?embed=1#thr=thr-10&cluster=2&atlas=TY7"
+    r = client.get("/0.15/tracts/leftArc?atlas=TY7").json()
+    assert r["panel_url"] == PUB + "/explorer.html?embed=1#thr=thr-15&tab=tract&tract=leftArc&atlas=TY7"
+
+
+def test_panel_url_everywhere_view_url_is(client):
+    for path in ["/0.15/clusters", "/0.15/clusters/1", "/0.15/tracts?q=arc", "/0.15/tracts/leftArc",
+                 "/0.15/topics/14/tracts", "/0.15/networks?entity=cluster:2", "/view-url"]:
+        body = client.get(path).json()
+        items = [body] + [i for k in ("clusters", "tracts") for i in body.get(k, [])]
+        assert any("view_url" in i for i in items), path
+        for i in items:
+            if "view_url" in i:
+                q = urlsplit(i["view_url"]).query
+                assert i["panel_url"] == PUB + "/explorer.html?embed=1" + ("#" + q if q else ""), path

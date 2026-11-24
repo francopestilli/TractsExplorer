@@ -53,8 +53,12 @@ def create_app(root: Path, public_url: str, root_path: str = "") -> FastAPI:
     app.root_path = root_path  # set directly: the constructor argument is deprecated
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"])
 
-    def view_url(thr=None, **params):
-        return public_url + "/explorer.html" + to_query({"thr": thr, **params}, view_keys)
+    def links(thr=None, **params):
+        """view_url opens the view; panel_url is the same view for SKAI's side panel
+        (explorer.html?embed=1#...: changing the part after '#' doesn't reload it)."""
+        q = to_query({"thr": thr, **params}, view_keys)
+        return {"view_url": public_url + "/explorer.html" + q,
+                "panel_url": public_url + "/explorer.html?embed=1" + ("#" + q[1:] if q else "")}
 
     def check_cluster(thr, n):
         if n not in repo.cluster_ids(thr):
@@ -127,15 +131,14 @@ def create_app(root: Path, public_url: str, root_path: str = "") -> FastAPI:
         if "atlas" in out and out["atlas"] not in repo.atlases(t):
             raise NotFound(f"Unknown atlas '{out['atlas']}' at {t}.",
                            "Available atlases: " + ", ".join(repo.atlases(t)))
-        return {"threshold": thr_info(out["thr"]),
-                "view_url": public_url + "/explorer.html" + to_query(out, view_keys)}
+        return {"threshold": thr_info(out["thr"]), **links(**out)}
 
     @app.get("/{thr}/clusters")
     def clusters(thr: str, atlas: str | None = None):
         t = repo.resolve_threshold(thr)
         items = repo.clusters(t)
         for c in items:
-            c["view_url"] = view_url(t, tab="cluster", cluster=c["cluster"], atlas=atlas)
+            c.update(links(t, tab="cluster", cluster=c["cluster"], atlas=atlas))
         return {"threshold": thr_info(t), "clusters": items}
 
     @app.get("/{thr}/clusters/{n}")
@@ -143,14 +146,14 @@ def create_app(root: Path, public_url: str, root_path: str = "") -> FastAPI:
         t = repo.resolve_threshold(thr)
         r = repo.cluster(t, n, atlas, limit)
         return {"threshold": thr_info(t), **r,
-                "view_url": view_url(t, tab="cluster", cluster=n, atlas=atlas)}
+                **links(t, tab="cluster", cluster=n, atlas=atlas)}
 
     @app.get("/{thr}/tracts")
     def find_tracts(thr: str, q: str = Query(..., min_length=1)):
         t = repo.resolve_threshold(thr)
         items = repo.find_tracts(t, q)
         for i in items:
-            i["view_url"] = view_url(t, tab="tract", tract=i["tract"])
+            i.update(links(t, tab="tract", tract=i["tract"]))
         return {"threshold": thr_info(t), "tracts": items}
 
     @app.get("/{thr}/tracts/{tract}")
@@ -158,14 +161,14 @@ def create_app(root: Path, public_url: str, root_path: str = "") -> FastAPI:
         t = repo.resolve_threshold(thr)
         r = repo.tract(t, tract, atlas, limit)
         return {"threshold": thr_info(t), **r,
-                "view_url": view_url(t, tab="tract", tract=r["tract"], atlas=atlas)}
+                **links(t, tab="tract", tract=r["tract"], atlas=atlas)}
 
     @app.get("/{thr}/topics/{topic_id}/tracts")
     def topic_tracts(thr: str, topic_id: int, limit: int = Limit):
         t = repo.resolve_threshold(thr)
         items = repo.tracts_for_topic(t, topic_id, limit)
         for i in items:
-            i["view_url"] = view_url(t, tab="tract", tract=i["tract"])
+            i.update(links(t, tab="tract", tract=i["tract"]))
         return {"threshold": thr_info(t), "topic": topic_id, "tracts": items}
 
     @app.get("/{thr}/networks")
@@ -177,12 +180,12 @@ def create_app(root: Path, public_url: str, root_path: str = "") -> FastAPI:
             raise BadRequest(f"Invalid entity '{entity}'.", "Use entity=tract:leftArc or entity=cluster:2.")
         if kind == "tract":
             ident = repo.resolve_tract(t, ident)
-            vu = view_url(t, tab="tract", tract=ident, atlas=atlas)
+            vu = links(t, tab="tract", tract=ident, atlas=atlas)
         else:
             check_cluster(t, int(ident) if POSINT_RE.match(ident) else ident)
-            vu = view_url(t, tab="cluster", cluster=int(ident), atlas=atlas)
+            vu = links(t, tab="cluster", cluster=int(ident), atlas=atlas)
         return {"threshold": thr_info(t), "entity": f"{kind}:{ident}",
-                "networks": repo.networks(t, kind, ident, atlas)[:limit], "view_url": vu}
+                "networks": repo.networks(t, kind, ident, atlas)[:limit], **vu}
 
     return app
 
