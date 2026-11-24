@@ -27,7 +27,7 @@ Behind a reverse proxy, run uvicorn with `--proxy-headers` and `--forwarded-allo
 
 ## Endpoints
 
-All responses are JSON. Responses for one threshold include a `threshold` object (`id`, `label`), and cluster and tract results include a `view_url` that opens the matching view in the explorer (`PUBLIC_URL` + `/explorer.html?...`).
+All responses are JSON. Responses for one threshold include a `threshold` object (`id`, `label`), and cluster and tract results include a `view_url` that opens the matching view in the explorer (`PUBLIC_URL` + `/explorer.html?...`). Next to each `view_url` is a `panel_url` for the same view in SKAI's side panel (`PUBLIC_URL` + `/explorer.html?embed=1#...`): a slimmer explorer that follows changes to the part after `#` without reloading.
 
 | Endpoint | Returns |
 |---|---|
