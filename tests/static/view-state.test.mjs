@@ -64,3 +64,7 @@ test('fromUrl reads panel links', () => {
   const base = 'https://connects.brainlife.io/tractsexplorer/explorer.html';
   assert.deepEqual(TEView.fromUrl(base + '?embed=1#cluster=2', base, cfg), { cluster: 2 });
 });
+
+test('unknown hash keys (the SKAI tool server\'s n=...) are ignored', () => {
+  assert.deepEqual(TEView.parse('?embed=1', '#thr=thr-15&cluster=2&n=1a2b3c4d', cfg), { thr: 'thr-15', cluster: 2 });
+});
