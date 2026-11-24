@@ -41,10 +41,12 @@
     .then(function (res) {
       var config = res[0], lookups = res[1];
       TEView.init(lookups.view);
+      var embed = TEView.isEmbed(location.search);   // inside SKAI's side panel
+      if (embed) document.body.classList.add('embed');
       new Vue({
         el: '#app',
         data: { error: null, config: config, tractNames: lookups.tractNames },
-        computed: { skaiOn: function () { return !!(this.config.skai && this.config.skai.url); } }
+        computed: { skaiOn: function () { return !embed && !!(this.config.skai && this.config.skai.url); } }
       });
     })
     .catch(function (e) {

@@ -1159,6 +1159,13 @@ ${SURF_PANEL_TEMPLATE}
       this.tab = 'tract';
     }
     window.teExplorer = this;   // for the SKAI panel: applyView() / currentView
+    // Inside SKAI's side panel (explorer.html?embed=1#…) SKAI moves the view by
+    // changing the part after '#', which doesn't reload the page.
+    this.embed = TEView.isEmbed(location.search);
+    if (this.embed) {
+      this._onHash = () => this.applyView(TEView.parse('', location.hash, this.config));
+      window.addEventListener('hashchange', this._onHash);
+    }
     this.loadData();
     this.loadTopicTerms();
     // Open the linked view once the data is in, then keep the address bar in sync.
@@ -1168,6 +1175,7 @@ ${SURF_PANEL_TEMPLATE}
   beforeDestroy() {
     this.disposeSurfScenes();
     if (this._tourKey) { window.removeEventListener('keydown', this._tourKey); window.removeEventListener('resize', this._tourResize); }
+    if (this._onHash) window.removeEventListener('hashchange', this._onHash);
   },
 
   updated() { if (!this._secObsQueued) { this._secObsQueued = true; this.$nextTick(() => { this._secObsQueued = false; this.observeSections(); }); } },
@@ -1267,10 +1275,14 @@ ${SURF_PANEL_TEMPLATE}
     // Mirror currentView in the address bar without adding history entries.
     syncUrl() {
       if (!this._urlReady || this.loading) return;
-      const q = TEView.toQuery(this.currentView);
-      if (q === location.search && !location.hash) return;
+      // Embedded: keep ?embed=1 and mirror the view after '#', so SKAI's next
+      // change to a different view registers as a hash change.
+      const url = this.embed
+        ? location.pathname + location.search + TEView.toHash(this.currentView)
+        : location.pathname + TEView.toQuery(this.currentView);
+      if (url === location.pathname + location.search + location.hash) return;
       // Safari throws once replaceState is called too often; the next change syncs again.
-      try { history.replaceState(null, '', location.pathname + q); } catch (e) {}
+      try { history.replaceState(null, '', url); } catch (e) {}
     },
 
     // ── Intro tour ────────────────────────────────────────────────
@@ -1337,7 +1349,7 @@ ${SURF_PANEL_TEMPLATE}
           // (not when arriving via a link to a specific view).
           if (!this._tourOffered) {
             this._tourOffered = true;
-            if (readPref('wmc.tourDone') !== '1' && !location.hash && !location.search) {
+            if (!this.embed && readPref('wmc.tourDone') !== '1' && !location.hash && !location.search) {
               setTimeout(() => { if (!this.tour.active) this.startTour(); }, 900);
             }
           }
