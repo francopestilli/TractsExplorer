@@ -308,6 +308,19 @@ test('onMessage gets the inner message of server frames; PONG / junk ignored', a
   assert.deepEqual(got, [{ type: 'TEXT', content: 'hello', author: 'AGENT' }]);
 });
 
+// SKAI binds one queue per socket that ever subscribed to the session and
+// never drops them, so each message reaches a socket once per past socket.
+test('a message SKAI repeats (same id) is delivered once; id-less frames pass', async () => {
+  const { client, ws } = await connected();
+  const got = [];
+  client.onMessage(m => got.push(m.id || m.type));
+  for (let i = 0; i < 4; i++) ws.receive({ sessionId: 'S1', message: { type: 'TEXT', content: 'answer', id: 'A' } });
+  ws.receive({ sessionId: 'S1', message: { type: 'TEXT', content: 'next', id: 'B' } });
+  ws.receive({ sessionId: 'S1', message: { type: 'TASK_STATUS' } });
+  ws.receive({ sessionId: 'S1', message: { type: 'TASK_STATUS' } });
+  assert.deepEqual(got, ['A', 'B', 'TASK_STATUS', 'TASK_STATUS']);
+});
+
 test('classify: TEXT renders, progress -> thinking line, the rest ignored', () => {
   assert.deepEqual(TESkai.classify({ type: 'TEXT', content: 'hi' }), { kind: 'text', text: 'hi' });
   assert.equal(TESkai.classify({ type: 'REASONING_STEP', content: { phase: 'thought' } }).kind, 'thinking');

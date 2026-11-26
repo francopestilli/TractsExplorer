@@ -10,6 +10,7 @@
   var STABLE_MS = 10000;   // a socket up this long (or one that hears back) resets the backoff
   var FETCH_TIMEOUT_MS = 15000;   // /ticket and /sessions
   var REPLY_TIMEOUT_MS = 120000;  // silence after a question before giving up on the answer
+  var SEEN_MAX = 500;   // message ids remembered for dropping repeats
 
   function view() { return root.TEView || (typeof TEView !== 'undefined' ? TEView : null); }
 
@@ -55,6 +56,9 @@
     var msgCbs = [], statusCbs = [];
     var ws = null, sessionId = null, timer = null, stable = null, attempt = 0, closed = false, status = null;
     var waiting = null;   // reply timer while a question is unanswered
+    // Ids of messages already delivered: SKAI sends a message once per socket
+    // that ever subscribed to the session, so the same one can arrive again.
+    var seen = {}, seenOrder = [];
 
     function setStatus(s) {
       if (s === status) return;
@@ -96,6 +100,11 @@
       attempt = 0;   // the server is really talking to us
       var m = frame && frame.message;
       if (!m || typeof m !== 'object' || m.type === 'PONG') return;
+      if (m.id) {
+        if (seen[m.id]) return;
+        seen[m.id] = true;
+        if (seenOrder.push(m.id) > SEEN_MAX) delete seen[seenOrder.shift()];
+      }
       if (waiting) { if (m.type === 'TEXT' || m.type === 'FORM') stopWaiting(); else wait(); }
       emit(m);
     }
