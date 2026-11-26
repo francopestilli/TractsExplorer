@@ -9,7 +9,22 @@
     'Which topics does this tract decode to?'
   ];
 
+  var LOGIN_STASH_KEY = 'tractexplorer.loginView';   // the view to come back to after the login
+
   function storage() { try { return window.localStorage; } catch (e) { return null; } }
+
+  // Back from brainlife.io's login with ?jwt=...: keep the jwt where
+  // brainlife.io's own pages keep it and put the view back in the address
+  // bar. Runs now, before the explorer reads the address.
+  (function takeLogin() {
+    var stash = null;
+    try { stash = sessionStorage.getItem(LOGIN_STASH_KEY); sessionStorage.removeItem(LOGIN_STASH_KEY); } catch (e) {}
+    var r = TESkai.takeJwt(location.href, stash);
+    if (!r) return;
+    var s = storage();
+    try { if (s && TESkai.getJwt({ getItem: function () { return r.jwt; } })) s.setItem('jwt', r.jwt); } catch (e) {}
+    history.replaceState(null, '', r.url);
+  })();
   function explorerBase() { return location.origin + location.pathname; }
   function narrow() { return window.matchMedia && window.matchMedia('(max-width: 900px)').matches; }
 
@@ -104,10 +119,12 @@
 
     methods: {
       // Built at click time: the address bar follows the explorer's view.
-      loginHref: function () {
-        return this.config.skai.loginUrl + '?redirect=' + encodeURIComponent(location.href);
+      loginHref: function () { return TESkai.loginUrl(this.config.skai.loginUrl, location).url; },
+      login: function () {
+        var l = TESkai.loginUrl(this.config.skai.loginUrl, location);
+        try { sessionStorage.setItem(LOGIN_STASH_KEY, l.stash); } catch (e) {}
+        location.assign(l.url);
       },
-      login: function () { location.assign(this.loginHref()); },
       toggle: function () {
         this.open = !this.open;
         // The explorer's width changed: let size-dependent views refit.

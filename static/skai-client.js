@@ -43,6 +43,31 @@
     return null;
   }
 
+  // ── Login ───────────────────────────────────────────────────────
+  // brainlife.io's login (as connects.brainlife.io uses it): auth/#!/signin
+  // with app and callback; it comes back to callback?jwt=... . The callback
+  // carries no query (auth appends '?jwt=' as is), so the view's query and
+  // hash go in `stash` for takeJwt to put back.
+  function loginUrl(loginBase, loc) {
+    var callback = loc.origin + loc.pathname;
+    return {
+      url: String(loginBase).replace(/#.*$/, '') + '#!/signin?app=connects&callback=' + encodeURIComponent(callback),
+      stash: (loc.search || '') + (loc.hash || '')
+    };
+  }
+
+  // After the login: the jwt from url's ?jwt=..., and the url to show
+  // instead (jwt removed; the stashed view back when the query is otherwise
+  // empty). null when the url has no jwt.
+  function takeJwt(url, stash) {
+    var u = new URL(url);
+    var jwt = u.searchParams.get('jwt');
+    if (!jwt) return null;
+    u.searchParams.delete('jwt');
+    var rest = u.search + u.hash;
+    return { jwt: jwt, url: u.pathname + (rest || stash || '') };
+  }
+
   // ── Client ──────────────────────────────────────────────────────
   function createClient(opts) {
     var base = String(opts.skaiUrl).replace(/\/+$/, '');
@@ -365,7 +390,7 @@
   }
 
   var TESkai = {
-    getJwt: getJwt, createClient: createClient, classify: classify, contextLine: contextLine,
+    getJwt: getJwt, loginUrl: loginUrl, takeJwt: takeJwt, createClient: createClient, classify: classify, contextLine: contextLine,
     explorerLinks: explorerLinks, summarize: summarize, renderMarkdown: renderMarkdown
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = TESkai;

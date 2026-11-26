@@ -744,7 +744,7 @@ table.matrix-table td.cell:hover { outline: 2px solid var(--accent); outline-off
 }
 @container (max-width: 828px) { .endpoint-cols { grid-template-columns: 1fr; } .endpoint-col .topic-bar-label { width: 200px; min-width: 200px; } }
 .skai-panel {
-  width: 360px; flex-shrink: 0; height: 100vh; display: flex; flex-direction: column;
+  width: clamp(360px, 30vw, 560px); flex-shrink: 0; height: 100vh; display: flex; flex-direction: column;
   background: var(--bg-2); border-right: 1px solid var(--rule); color: var(--ink);
 }
 .skai-panel.collapsed { width: 44px; }
