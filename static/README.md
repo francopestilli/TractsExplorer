@@ -12,6 +12,13 @@ The landing page (`index.html`) and the explorer (`explorer.html`). There is no 
 | `view-state.js` | parses and builds view links |
 | `skai-client.js`, `skai-panel.js` | the SKAI assistant panel |
 
+The SKAI panel shows when `config.json` sets `skai.url`. It uses the
+brainlife.io login kept in `localStorage.jwt`, shared with the rest of
+connects.brainlife.io. "Log in to ask SKAI" goes to
+`skai.loginUrl#!/signin?app=connects&callback=…`; brainlife.io comes back
+with `?jwt=…`, which the panel stores and removes from the address bar,
+restoring the view you were on.
+
 ## View links
 
 `explorer.html` reads these query parameters on load and keeps the address bar in sync, so any copied link reopens the same view. All are optional and invalid values are ignored. The allowed values live in `view` in `data/lookups.json`, which the API's `/view-url` also validates against.

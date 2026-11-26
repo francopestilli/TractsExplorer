@@ -416,3 +416,27 @@ test('summarize a view for the "Showing:" chip', () => {
   assert.equal(TESkai.summarize({ tab: 'matrix' }), 'matrix');
   assert.equal(TESkai.summarize({}), 'explorer start');
 });
+
+// ── login ─────────────────────────────────────────────────────────
+test('loginUrl: brainlife signin with app and a query-free callback; the view goes in stash', () => {
+  const loc = { origin: 'https://connects.brainlife.io', pathname: '/tractsexplorer/explorer.html',
+    search: '?cluster=1', hash: '#x' };
+  const l = TESkai.loginUrl('https://brainlife.io/auth/', loc);
+  assert.equal(l.url, 'https://brainlife.io/auth/#!/signin?app=connects&callback=' +
+    encodeURIComponent('https://connects.brainlife.io/tractsexplorer/explorer.html'));
+  assert.equal(l.stash, '?cluster=1#x');
+  assert.equal(TESkai.loginUrl('https://brainlife.io/auth/#!/old', { ...loc, search: '', hash: '' }).stash, '');
+  assert.ok(TESkai.loginUrl('https://brainlife.io/auth/#!/old', loc).url.startsWith('https://brainlife.io/auth/#!/signin?'));
+});
+
+test('takeJwt: jwt out of the url, the stashed view back', () => {
+  const base = 'https://connects.brainlife.io/tractsexplorer/explorer.html';
+  assert.equal(TESkai.takeJwt(base + '?cluster=1', '?x=1'), null);
+  assert.deepEqual(TESkai.takeJwt(base + '?jwt=a.b.c', '?cluster=1#x'),
+    { jwt: 'a.b.c', url: '/tractsexplorer/explorer.html?cluster=1#x' });
+  assert.deepEqual(TESkai.takeJwt(base + '?jwt=a.b.c', null),
+    { jwt: 'a.b.c', url: '/tractsexplorer/explorer.html' });
+  // a query of its own wins over the stash
+  assert.deepEqual(TESkai.takeJwt(base + '?tract=leftArc&jwt=a.b.c', '?cluster=1'),
+    { jwt: 'a.b.c', url: '/tractsexplorer/explorer.html?tract=leftArc' });
+});
